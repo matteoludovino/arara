@@ -58,6 +58,7 @@ INSTALLED_APPS = [
     "transfers",
     "counts",
     "pos",
+    "reports",
 ]
 
 # A cashier may give up to this discount on a sale on their own; above it, a manager approves.
