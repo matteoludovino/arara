@@ -1,15 +1,21 @@
 from rest_framework import serializers
 
+from common.serializers import clean_cnpj, cnpj_field
+
 from .models import Location
 
 
 class LocationSerializer(serializers.ModelSerializer[Location]):
     # Only physical locations are created through the API; transit and loss come from a migration.
     kind = serializers.ChoiceField(choices=[(k.value, k.label) for k in Location.PHYSICAL_KINDS])
+    cnpj = cnpj_field()
 
     class Meta:
         model = Location
         fields = ("id", "code", "name", "kind", "is_active", "cnpj", "state_registration")
+
+    def validate_cnpj(self, value: str) -> str:
+        return clean_cnpj(value)
 
     def validate_code(self, value: str) -> str:
         code = value.strip().upper()

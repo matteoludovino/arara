@@ -44,6 +44,19 @@ class Inflow:
 
 
 @dataclass(frozen=True)
+class ReverseInflow:
+    """
+    Undoes an Inflow exactly: removes the same pieces at the same unit cost. Only sound while
+    nothing of the SKU has left inventory since (the caller checks), so its value is still whole.
+    """
+
+    variant_id: int
+    location_id: int
+    quantity: int
+    unit_cost: Decimal
+
+
+@dataclass(frozen=True)
 class Gain:
     """Goods found (a count, an adjustment): enter at the current average, or the last known cost."""
 
@@ -83,7 +96,7 @@ class ValueAdjustment:
     value_delta: Decimal
 
 
-Operation = Inflow | Gain | Outflow | Transfer | ValueAdjustment
+Operation = Inflow | ReverseInflow | Gain | Outflow | Transfer | ValueAdjustment
 
 
 class InsufficientStock(ConflictError):
@@ -101,7 +114,7 @@ def _validate(op: Operation, locations: dict[int, Location]) -> None:
             raise DomainError("Ajuste de valor zerado.", "value_adjustment_zero")
     elif op.quantity <= 0:
         raise DomainError("Quantidade precisa ser maior que zero.", "quantity_not_positive")
-    if isinstance(op, Inflow) and op.unit_cost < 0:
+    if isinstance(op, Inflow | ReverseInflow) and op.unit_cost < 0:
         raise DomainError("Custo não pode ser negativo.", "unit_cost_negative")
     if isinstance(op, Transfer):
         source, target = locations[op.from_location_id], locations[op.to_location_id]
@@ -212,6 +225,14 @@ def post_entry(
                 cost.quantity += op.quantity
                 cost.value += value
                 move((op.variant_id, op.location_id), op.quantity, value, q4(unit_cost))
+            elif isinstance(op, ReverseInflow):
+                value = min(q4(op.unit_cost * op.quantity), cost.value)
+                cost.quantity -= op.quantity
+                cost.value -= value
+                if cost.quantity == 0:
+                    value += cost.value  # nothing left: take any rounding remainder with it
+                    cost.value = VALUE_ZERO
+                move((op.variant_id, op.location_id), -op.quantity, -value, q4(op.unit_cost))
             elif isinstance(op, Outflow):
                 value = _average_out(cost, op.quantity) if cost.quantity else VALUE_ZERO
                 cost.quantity -= op.quantity

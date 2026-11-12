@@ -54,6 +54,7 @@ INSTALLED_APPS = [
     "audit",
     "catalog",
     "stock",
+    "purchasing",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

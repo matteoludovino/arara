@@ -34,3 +34,16 @@ def read_or(*capabilities: Capability) -> type[BasePermission]:
 
     ReadOrCapability.__name__ = f"ReadOr({', '.join(capabilities)})"
     return ReadOrCapability
+
+
+def requires_any(*capabilities: Capability) -> type[BasePermission]:
+    """DRF permission: the user must hold at least one of the listed capabilities."""
+
+    class RequiresAnyCapability(BasePermission):
+        message = "Você não tem permissão para esta ação."
+
+        def has_permission(self, request: Request, view: Any) -> bool:
+            return any(can(request.user, capability) for capability in capabilities)
+
+    RequiresAnyCapability.__name__ = f"RequiresAny({', '.join(capabilities)})"
+    return RequiresAnyCapability

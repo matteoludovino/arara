@@ -3,23 +3,11 @@ from typing import Any
 
 from rest_framework import serializers
 
+from accounts.visibility import HidesCosts
 from catalog.models import ProductVariant
 from locations.models import Location
 
 from .models import StockEntry, StockLevel, StockMovement
-
-COST_FIELDS = ("average_cost", "stock_value", "value_delta", "unit_cost")
-
-
-class HidesCosts:
-    """Drops cost fields from the output unless the context says the reader may see them."""
-
-    def to_representation(self, instance: Any) -> Any:
-        data = super().to_representation(instance)  # type: ignore[misc]
-        if not self.context.get("see_costs"):  # type: ignore[attr-defined]
-            for field in COST_FIELDS:
-                data.pop(field, None)
-        return data
 
 
 class StockLevelSerializer(HidesCosts, serializers.ModelSerializer[StockLevel]):

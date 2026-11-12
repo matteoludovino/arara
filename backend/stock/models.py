@@ -77,6 +77,7 @@ class StockEntry(models.Model):
 
     class Kind(models.TextChoices):
         PURCHASE_RECEIPT = "purchase_receipt", "Recebimento de compra"
+        RECEIPT_CANCELLATION = "receipt_cancellation", "Estorno de recebimento"
         PURCHASE_RETURN = "purchase_return", "Devolução ao fornecedor"
         SALE = "sale", "Venda"
         SALE_CANCELLATION = "sale_cancellation", "Cancelamento de venda"

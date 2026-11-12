@@ -17,7 +17,16 @@ from conftest import make_location
 from locations.models import Location
 from stock.invariants import stock_problems
 from stock.models import SkuCost, StockEntry, StockLevel, StockMovement
-from stock.services import Gain, Inflow, InsufficientStock, Outflow, Transfer, ValueAdjustment, post_entry
+from stock.services import (
+    Gain,
+    Inflow,
+    InsufficientStock,
+    Outflow,
+    ReverseInflow,
+    Transfer,
+    ValueAdjustment,
+    post_entry,
+)
 
 pytestmark = pytest.mark.django_db
 K = StockEntry.Kind
@@ -224,3 +233,12 @@ def test_a_new_store_starts_empty(owner: User, sku: ProductVariant) -> None:
     fresh = make_location("NOVA", "Loja nova")
     post(owner, K.PURCHASE_RECEIPT, Inflow(sku.pk, fresh.pk, 2, Decimal("10.00")))
     assert qty(sku, fresh) == 2
+
+
+def test_reversing_a_receipt_removes_exactly_what_it_added(owner: User, sku: ProductVariant, store: Location) -> None:
+    post(owner, K.PURCHASE_RECEIPT, Inflow(sku.pk, store.pk, 2, Decimal("10.00")))
+    post(owner, K.PURCHASE_RECEIPT, Inflow(sku.pk, store.pk, 3, Decimal("14.00")))  # average 12.40
+    post(owner, K.RECEIPT_CANCELLATION, ReverseInflow(sku.pk, store.pk, 3, Decimal("14.00")))
+    # At the average it would have removed 37.20 and left 24.80 for 2 pieces: wrong.
+    assert cost(sku) == (2, Decimal("20.0000"))
+    assert qty(sku, store) == 2

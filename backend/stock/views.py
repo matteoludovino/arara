@@ -1,4 +1,3 @@
-from collections.abc import Mapping
 from typing import Any, cast
 
 from django.db.models import F, QuerySet
@@ -12,6 +11,7 @@ from rest_framework.views import APIView
 from accounts.capabilities import Capability, can, location_ids_for
 from accounts.models import User
 from accounts.permissions import requires
+from accounts.visibility import cost_context
 from catalog.models import Product
 
 from . import services
@@ -25,11 +25,6 @@ def _user(request: Request) -> User:
     return cast(User, request.user)
 
 
-def with_cost_visibility(context: Mapping[str, Any], request: Request) -> dict[str, Any]:
-    """Serializers drop cost fields unless the reader holds costs.view."""
-    return {**context, "see_costs": can(request.user, Capability.COSTS_VIEW)}
-
-
 class StockLevelViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet[StockLevel]):
     """Balances at the locations the user works at. PATCH sets restock targets."""
 
@@ -39,7 +34,7 @@ class StockLevelViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets
     filterset_fields = ("location", "variant", "variant__product")
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return with_cost_visibility(super().get_serializer_context(), self.request)
+        return cost_context(super().get_serializer_context(), self.request)
 
     def get_queryset(self) -> QuerySet[StockLevel]:
         levels = StockLevel.objects.filter(location_id__in=location_ids_for(_user(self.request))).select_related(
@@ -64,7 +59,7 @@ class MovementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet[StockMoveme
     filterset_fields = ("variant", "location", "entry__kind", "entry")
 
     def get_serializer_context(self) -> dict[str, Any]:
-        return with_cost_visibility(super().get_serializer_context(), self.request)
+        return cost_context(super().get_serializer_context(), self.request)
 
     def get_queryset(self) -> QuerySet[StockMovement]:
         return (
@@ -118,7 +113,7 @@ class AdjustmentView(APIView):
             approval_id=values.get("approval"),
         )
         movements = entry.movements.filter(location=location).select_related("entry__created_by", "variant", "location")
-        context = with_cost_visibility({}, request)
+        context = cost_context({}, request)
         return Response(
             {"entry": entry.pk, "movements": MovementSerializer(movements, many=True, context=context).data},
             status=status.HTTP_201_CREATED,
