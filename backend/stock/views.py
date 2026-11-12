@@ -2,6 +2,8 @@ from typing import Any, cast
 
 from django.db.models import F, QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.request import Request
@@ -28,6 +30,7 @@ def _user(request: Request) -> User:
 class StockLevelViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets.GenericViewSet[StockLevel]):
     """Balances at the locations the user works at. PATCH sets restock targets."""
 
+    queryset = StockLevel.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = StockLevelSerializer
     permission_classes = (StockReaders,)
     http_method_names = ("get", "patch", "head", "options")
@@ -54,6 +57,7 @@ class StockLevelViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets
 class MovementViewSet(mixins.ListModelMixin, viewsets.GenericViewSet[StockMovement]):
     """The ledger, newest first, for the locations the user works at."""
 
+    queryset = StockMovement.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = MovementSerializer
     permission_classes = (StockReaders,)
     filterset_fields = ("variant", "location", "entry__kind", "entry")
@@ -74,6 +78,10 @@ class GridView(APIView):
 
     permission_classes = (StockReaders,)
 
+    @extend_schema(
+        parameters=[OpenApiParameter("product", int, required=True), OpenApiParameter("location", int)],
+        responses=OpenApiTypes.OBJECT,
+    )
     def get(self, request: Request) -> Response:
         product = get_object_or_404(Product.objects.select_related("size_grid"), pk=request.query_params.get("product"))
         visible = location_ids_for(_user(request))
@@ -97,6 +105,7 @@ class GridView(APIView):
 class AdjustmentView(APIView):
     permission_classes = (StockReaders,)
 
+    @extend_schema(request=AdjustmentSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request: Request) -> Response:
         data = AdjustmentSerializer(data=request.data)
         data.is_valid(raise_exception=True)

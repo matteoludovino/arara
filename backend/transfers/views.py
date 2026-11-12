@@ -28,6 +28,7 @@ def _user(request: Request) -> User:
 class TransferViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[Transfer]):
     """Transfers leaving or arriving at the user's locations."""
 
+    queryset = Transfer.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = TransferSerializer
     permission_classes = (requires(Capability.STOCK_TRANSFER),)
     filterset_fields = ("status", "origin", "destination")

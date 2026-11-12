@@ -1,6 +1,8 @@
 from typing import Any, cast
 
 from django.db.models import QuerySet
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -44,6 +46,7 @@ class SupplierViewSet(viewsets.ModelViewSet[Supplier]):
 class OrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[PurchaseOrder]):
     """Orders of the user's locations. Stockists see them too: they receive the goods."""
 
+    queryset = PurchaseOrder.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = OrderSerializer
     permission_classes = (BuyersOrReceivers,)
     filterset_fields = ("status", "supplier", "location")
@@ -126,6 +129,7 @@ class OrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
 
 
 class ReceiptViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[GoodsReceipt]):
+    queryset = GoodsReceipt.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = ReceiptSerializer
     permission_classes = (BuyersOrReceivers,)
     filterset_fields = ("order",)
@@ -152,6 +156,7 @@ class ReceiptViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
 
 class PurchaseReturnViewSet(mixins.ListModelMixin, viewsets.GenericViewSet[PurchaseReturn]):
+    queryset = PurchaseReturn.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = ReturnSerializer
     permission_classes = (Buyers,)
 
@@ -179,6 +184,7 @@ class SuggestionsView(APIView):
 
     permission_classes = (Buyers,)
 
+    @extend_schema(responses=OpenApiTypes.OBJECT)
     def get(self, request: Request) -> Response:
         rows = services.suggestions(location_ids_for(_user(request)))
         if not cost_context({}, request)["see_costs"]:

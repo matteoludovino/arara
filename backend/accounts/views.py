@@ -4,6 +4,7 @@ from django.contrib.auth import authenticate, login, logout
 from django.db.models import QuerySet
 from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import ensure_csrf_cookie
+from drf_spectacular.utils import extend_schema
 from rest_framework import status, viewsets
 from rest_framework.authentication import SessionAuthentication
 from rest_framework.permissions import AllowAny, IsAuthenticated
@@ -25,6 +26,7 @@ class CsrfView(APIView):
 
     permission_classes = (AllowAny,)
 
+    @extend_schema(responses={204: None})
     def get(self, request: Request) -> Response:
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -34,6 +36,7 @@ class LoginView(APIView):
     throttle_classes = (ScopedRateThrottle,)
     throttle_scope = "credentials"
 
+    @extend_schema(request=LoginSerializer, responses=MeSerializer)
     def post(self, request: Request) -> Response:
         # DRF only checks CSRF for signed-in users; without this, another site could sign a
         # visitor into an account of its choosing (login CSRF).
@@ -48,6 +51,7 @@ class LoginView(APIView):
 
 
 class LogoutView(APIView):
+    @extend_schema(request=None, responses={204: None})
     def post(self, request: Request) -> Response:
         logout(request._request)
         return Response(status=status.HTTP_204_NO_CONTENT)
@@ -56,6 +60,7 @@ class LogoutView(APIView):
 class MeView(APIView):
     permission_classes = (IsAuthenticated,)
 
+    @extend_schema(responses=MeSerializer)
     def get(self, request: Request) -> Response:
         return Response(MeSerializer(cast(User, request.user)).data)
 
@@ -77,6 +82,7 @@ class ApprovalView(APIView):
     throttle_classes = (ScopedRateThrottle,)
     throttle_scope = "credentials"
 
+    @extend_schema(request=ApprovalRequestSerializer, responses={201: ApprovalSerializer})
     def post(self, request: Request) -> Response:
         data = ApprovalRequestSerializer(data=request.data)
         data.is_valid(raise_exception=True)

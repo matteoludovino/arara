@@ -24,6 +24,7 @@ class CanManageLocationsOrReadOnly(IsAuthenticated):
 class LocationViewSet(viewsets.ModelViewSet[Location]):
     """Physical locations the user works at (all of them for an owner)."""
 
+    queryset = Location.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = LocationSerializer
     permission_classes = (CanManageLocationsOrReadOnly,)
     http_method_names = ("get", "post", "patch", "head", "options")

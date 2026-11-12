@@ -1,6 +1,7 @@
 from decimal import Decimal
 from typing import Any
 
+from drf_spectacular.utils import extend_schema_serializer
 from rest_framework import serializers
 
 from accounts.visibility import HidesCosts
@@ -166,6 +167,7 @@ class ReturnWriteSerializer(serializers.Serializer[None]):
     lines = ReturnLineInputSerializer(many=True, allow_empty=False)
 
 
+@extend_schema_serializer(component_name="PurchaseReturn")
 class ReturnSerializer(serializers.ModelSerializer[PurchaseReturn]):
     supplier_name = serializers.CharField(source="supplier.name")
     created_by = serializers.CharField(source="created_by.name")

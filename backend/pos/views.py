@@ -2,6 +2,8 @@ from typing import Any, cast
 
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
@@ -57,6 +59,7 @@ class CustomerViewSet(viewsets.ModelViewSet[Customer]):
 
 
 class RegisterViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.GenericViewSet[CashRegister]):
+    queryset = CashRegister.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = RegisterSerializer
     permission_classes = (requires_any(Capability.POS_CASH, Capability.LOCATIONS_MANAGE),)
 
@@ -72,6 +75,7 @@ class RegisterViewSet(mixins.ListModelMixin, mixins.CreateModelMixin, viewsets.G
 
 
 class SessionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[CashSession]):
+    queryset = CashSession.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = SessionSerializer
     permission_classes = (TillOperators,)
     filterset_fields = ("register",)
@@ -115,6 +119,7 @@ class SessionViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
 
 
 class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[Sale]):
+    queryset = Sale.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = SaleSerializer
     permission_classes = (Sellers,)
     filterset_fields = ("location", "status", "session", "number")
@@ -156,6 +161,7 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
 
 
 class ReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[SaleReturn]):
+    queryset = SaleReturn.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = ReturnSerializer
     permission_classes = (Sellers,)
     filterset_fields = ("location", "original_sale")
@@ -196,6 +202,7 @@ class ExchangeView(APIView):
 
     permission_classes = (Sellers,)
 
+    @extend_schema(request=ExchangeInputSerializer, responses={201: OpenApiTypes.OBJECT})
     def post(self, request: Request) -> Response:
         data = ExchangeInputSerializer(data=request.data)
         data.is_valid(raise_exception=True)
@@ -226,6 +233,7 @@ class ExchangeView(APIView):
 class StoreCreditView(APIView):
     permission_classes = (Sellers,)
 
+    @extend_schema(responses=StoreCreditSerializer)
     def get(self, request: Request, code: str) -> Response:
         credit = get_object_or_404(StoreCredit.objects.select_related("customer"), code=code.strip().upper())
         return Response(StoreCreditSerializer(credit).data)

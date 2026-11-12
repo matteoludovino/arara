@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from django.db.models import Count, OuterRef, QuerySet, Subquery
 from django.utils import timezone
+from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound
@@ -150,6 +151,7 @@ class PriceViewSet(mixins.DestroyModelMixin, viewsets.GenericViewSet[Price]):
     """Withdraws a scheduled price that hasn't started yet."""
 
     queryset = Price.objects.select_related("product")
+    serializer_class = PriceSerializer
     permission_classes = (read_or(Capability.PRICES_CHANGE),)
 
     def perform_destroy(self, instance: Price) -> None:
@@ -178,6 +180,7 @@ class VariantViewSet(mixins.RetrieveModelMixin, mixins.UpdateModelMixin, viewset
 class LookupView(APIView):
     """GET /api/catalog/lookup?code=…: a scan (barcode) or a typed SKU, resolved to one variant."""
 
+    @extend_schema(parameters=[OpenApiParameter("code", str, required=True)], responses=LookupSerializer)
     def get(self, request: Request) -> Response:
         code = request.query_params.get("code", "").strip()
         if not code:

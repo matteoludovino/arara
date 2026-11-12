@@ -30,6 +30,7 @@ def _user(request: Request) -> User:
 
 
 class CountViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[InventoryCount]):
+    queryset = InventoryCount.objects.none()  # the model, for the schema: get_queryset scopes it to the user
     serializer_class = CountSerializer
     permission_classes = (requires(Capability.STOCK_COUNT),)
     filterset_fields = ("status", "location")
