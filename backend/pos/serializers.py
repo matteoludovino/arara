@@ -7,8 +7,20 @@ from accounts.models import User
 from accounts.visibility import HidesCosts
 from catalog.models import ProductVariant
 from common.cpf import is_valid_cpf, normalize_cpf
+from locations.models import Location
 
-from .models import CashMovement, CashRegister, CashSession, Customer, Payment, Sale, SaleItem, StoreCredit
+from .models import (
+    CashMovement,
+    CashRegister,
+    CashSession,
+    Customer,
+    Payment,
+    ReturnLine,
+    Sale,
+    SaleItem,
+    SaleReturn,
+    StoreCredit,
+)
 
 
 class CustomerSerializer(serializers.ModelSerializer[Customer]):
@@ -98,8 +110,18 @@ class ItemInputSerializer(serializers.Serializer[None]):
 class PaymentInputSerializer(serializers.Serializer[None]):
     method = serializers.ChoiceField(choices=Payment.Method.choices)
     amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
-    tendered = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True, default=None)
-    installments = serializers.IntegerField(required=False, allow_null=True, default=None)
+    tendered = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    installments = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
     card_brand = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
     nsu = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
     store_credit_code = serializers.CharField(max_length=12, required=False, allow_blank=True, default="")
@@ -118,7 +140,11 @@ class SaleInputSerializer(serializers.Serializer[None]):
     salesperson = serializers.PrimaryKeyRelatedField(
         queryset=User.objects.filter(is_active=True), required=False, allow_null=True, default=None
     )
-    approval = serializers.IntegerField(required=False, allow_null=True, default=None)
+    approval = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
 
 
 class SaleItemSerializer(HidesCosts, serializers.ModelSerializer[SaleItem]):
@@ -200,3 +226,91 @@ class StoreCreditSerializer(serializers.ModelSerializer[StoreCredit]):
     class Meta:
         model = StoreCredit
         fields = ("code", "customer", "balance", "expires_on", "created_at")
+
+
+class CancelSaleSerializer(serializers.Serializer[None]):
+    reason = serializers.CharField(max_length=200)
+
+
+class ReturnLineInputSerializer(serializers.Serializer[None]):
+    sale_item = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+    variant = serializers.PrimaryKeyRelatedField(
+        queryset=ProductVariant.objects.all(), required=False, allow_null=True, default=None
+    )
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class ReturnInputSerializer(serializers.Serializer[None]):
+    location = serializers.PrimaryKeyRelatedField(queryset=Location.objects.filter(kind=Location.Kind.STORE))
+    sale = serializers.PrimaryKeyRelatedField(
+        queryset=Sale.objects.all(), required=False, allow_null=True, default=None
+    )
+    lines = ReturnLineInputSerializer(many=True, allow_empty=False)
+    refund_method = serializers.ChoiceField(choices=SaleReturn.Refund.choices)
+    reason = serializers.CharField(max_length=200)
+    customer = serializers.PrimaryKeyRelatedField(
+        queryset=Customer.objects.all(), required=False, allow_null=True, default=None
+    )
+    approval = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+
+class ExchangeInputSerializer(serializers.Serializer[None]):
+    client_request_id = serializers.UUIDField()
+    sale = serializers.PrimaryKeyRelatedField(
+        queryset=Sale.objects.all(), required=False, allow_null=True, default=None
+    )
+    returned = ReturnLineInputSerializer(many=True, allow_empty=False)
+    reason = serializers.CharField(max_length=200)
+    items = ItemInputSerializer(many=True, allow_empty=False)
+    payments = PaymentInputSerializer(many=True, required=False, default=list)
+    approval = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+    )
+
+
+class ReturnLineSerializer(HidesCosts, serializers.ModelSerializer[ReturnLine]):
+    sku = serializers.CharField(source="variant.sku")
+
+    class Meta:
+        model = ReturnLine
+        fields = ("id", "sale_item", "variant", "sku", "quantity", "refund_amount", "cost_value")
+
+
+class ReturnSerializer(serializers.ModelSerializer[SaleReturn]):
+    location_code = serializers.CharField(source="location.code")
+    sale_number = serializers.IntegerField(source="original_sale.number", allow_null=True)
+    store_credit = serializers.CharField(source="store_credit.code", allow_null=True)
+    created_by = serializers.CharField(source="created_by.name")
+    lines = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SaleReturn
+        fields = (
+            "id",
+            "location",
+            "location_code",
+            "original_sale",
+            "sale_number",
+            "refund_method",
+            "total",
+            "reason",
+            "store_credit",
+            "created_by",
+            "created_at",
+            "lines",
+        )
+
+    def get_lines(self, sale_return: SaleReturn) -> list[dict[str, Any]]:
+        return ReturnLineSerializer(  # type: ignore[return-value]
+            sale_return.lines.select_related("variant"), many=True, context=self.context
+        ).data

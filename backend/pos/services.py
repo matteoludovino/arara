@@ -1,8 +1,8 @@
 """
 Point of sale services.
 
-Lock order, the same as everywhere: CashSession → Approval → DocumentSequence → SkuCost →
-StockLevel (inside post_entry) → StoreCredit. Every write that touches the till starts by
+Lock order, the same as everywhere: CashSession → Approval → Sale → DocumentSequence →
+SkuCost → StockLevel (inside post_entry) → StoreCredit. Every write that touches the till starts by
 locking its session, which also serializes a cashier's retried requests.
 """
 
@@ -13,7 +13,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import F, Sum
 from django.utils import timezone
 
 from accounts.capabilities import Capability, can
@@ -25,7 +25,7 @@ from catalog.services import current_price
 from common.errors import ConflictError, DomainError
 from locations.models import Location
 from stock.models import StockEntry
-from stock.services import Outflow, post_entry
+from stock.services import Gain, Inflow, Outflow, post_entry, q4
 
 from .models import (
     ZERO,
@@ -35,8 +35,10 @@ from .models import (
     Customer,
     DocumentSequence,
     Payment,
+    ReturnLine,
     Sale,
     SaleItem,
+    SaleReturn,
     StoreCredit,
     StoreCreditEntry,
 )
@@ -327,6 +329,7 @@ def create_sale(
     customer: Customer | None = None,
     salesperson: User | None = None,
     approval_id: int | None = None,
+    credit_first: StoreCredit | None = None,
 ) -> tuple[Sale, bool]:
     """Returns the sale and whether it was created now (False: a retry of one already made)."""
     session = open_session_of(user, lock=True)
@@ -364,6 +367,14 @@ def create_sale(
         if approval.limit is not None and percent > approval.limit:
             raise DomainError(f"A aprovação cobre até {approval.limit}%.", "discount_above_approval")
 
+    if credit_first is not None and credit_first.balance > 0 and total > 0:
+        # An exchange: the credit just issued pays first; the payments given cover the rest.
+        payments = [
+            PaymentInput(
+                Payment.Method.STORE_CREDIT, min(credit_first.balance, total), store_credit_code=credit_first.code
+            ),
+            *payments,
+        ]
     _check_payments(payments, total)
     number = _next_number(location, "sale")
     entry = post_entry(
@@ -426,3 +437,260 @@ def create_sale(
             data={"percent": f"{percent:.2f}", "approved_by": approval.approver_id, "total": str(total)},
         )
     return sale, True
+
+
+# ─── Cancellations ─────────────────────────────────────────────────────────────
+
+
+@transaction.atomic
+def cancel_sale(*, user: User, sale: Sale, reason: str) -> Sale:
+    """
+    Undoes a whole sale during its own shift: stock comes back at exactly the value that left,
+    store credit spent on it is given back, and the drawer no longer expects its cash.
+    After the shift, or once anything was returned, the way back is a return.
+    """
+    session = (
+        CashSession.objects.select_for_update(of=("self",)).select_related("register__location").get(pk=sale.session_id)
+    )
+    if not session.is_open:
+        raise ConflictError("O caixa desta venda já foi fechado: faça uma devolução.", "sale_session_closed")
+    if not _may_operate(user, session):
+        raise DomainError("Só o operador deste caixa (ou o gerente) cancela a venda.", "session_not_yours")
+    sale = Sale.objects.select_for_update(of=("self",)).get(pk=sale.pk)
+    if sale.status != Sale.Status.COMPLETED:
+        raise ConflictError("Esta venda já foi cancelada.", "sale_already_cancelled")
+    items = list(sale.items.select_related("variant"))
+    if any(item.quantity_returned for item in items):
+        raise ConflictError("Esta venda já teve devolução: devolva o restante.", "sale_has_returns")
+    sale.cancel_entry = post_entry(
+        kind=StockEntry.Kind.SALE_CANCELLATION,
+        operations=[
+            Inflow(
+                item.variant_id, sale.location_id, item.quantity, item.cost_value / item.quantity, value=item.cost_value
+            )
+            for item in items
+        ],
+        user=user,
+        source_ref=f"sale:{sale.location.code}-{sale.number}",
+        note=reason,
+    )
+    for payment in sale.payments.filter(method=Payment.Method.STORE_CREDIT).select_related("store_credit"):
+        assert payment.store_credit_id is not None  # a CHECK constraint requires it for this method
+        credit = StoreCredit.objects.select_for_update().get(pk=payment.store_credit_id)
+        credit.balance += payment.amount
+        credit.save(update_fields=["balance"])
+        StoreCreditEntry.objects.create(
+            credit=credit,
+            kind=StoreCreditEntry.Kind.REVERSE,
+            amount=payment.amount,
+            source_ref=f"sale:{sale.pk}",
+            created_by=user,
+        )
+    sale.status, sale.cancelled_at, sale.cancelled_by, sale.cancel_reason = (
+        Sale.Status.CANCELLED,
+        timezone.now(),
+        user,
+        reason,
+    )
+    sale.save(update_fields=["status", "cancel_entry", "cancelled_at", "cancelled_by", "cancel_reason"])
+    record(
+        actor=user,
+        action="sale.cancelled",
+        location=sale.location,
+        target=sale,
+        data={"number": sale.number, "total": str(sale.total), "reason": reason},
+    )
+    return sale
+
+
+# ─── Returns ───────────────────────────────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class ReturnInput:
+    quantity: int
+    sale_item_id: int | None = None  # with the receipt
+    variant: ProductVariant | None = None  # without it
+
+
+def _returned_so_far(item: SaleItem) -> tuple[Decimal, Decimal]:
+    totals = item.return_lines.aggregate(refund=Sum("refund_amount"), cost=Sum("cost_value"))
+    return totals["refund"] or ZERO, totals["cost"] or Decimal("0.0000")
+
+
+@transaction.atomic
+def return_items(
+    *,
+    user: User,
+    location: Location,
+    lines: list[ReturnInput],
+    refund_method: SaleReturn.Refund,
+    reason: str,
+    original_sale: Sale | None = None,
+    customer: Customer | None = None,
+    approval_id: int | None = None,
+) -> SaleReturn:
+    """
+    Takes pieces back at any store. With the receipt, each unit is refunded at what was
+    actually paid for it (its line's net amount, discount included) and re-enters inventory at
+    the cost it left with; the last units of a line take whatever remains of both, so a line
+    returned in parts adds up exactly. Without the receipt a manager approves, the refund is the
+    current price and the cost the current average.
+    """
+    if not can(user, Capability.POS_SELL, location):
+        raise DomainError("Você não atende nesta loja.", "pos_not_allowed")
+    if not lines or any(line.quantity <= 0 for line in lines):
+        raise DomainError("Informe as peças devolvidas.", "return_empty")
+    session = None
+    if refund_method == SaleReturn.Refund.CASH:
+        session = open_session_of(user, lock=True)
+        if session.register.location_id != location.pk:
+            raise DomainError("Devolução em dinheiro sai do caixa desta loja.", "refund_other_store")
+    approval = None
+    if original_sale is None:
+        if approval_id is None:
+            raise DomainError("Devolução sem cupom precisa de aprovação do gerente.", "return_needs_approval")
+        approval = consume_approval(
+            approval_id=approval_id,
+            requester=user,
+            action=Approval.Action.RETURN_WITHOUT_RECEIPT,
+            location=location,
+            used_by="return",
+        )
+
+    planned: list[tuple[ProductVariant, int, Decimal, Decimal | None, SaleItem | None]] = []
+    if original_sale is not None:
+        sale = Sale.objects.select_for_update(of=("self",)).get(pk=original_sale.pk)
+        if sale.status != Sale.Status.COMPLETED:
+            raise ConflictError("Venda cancelada não tem devolução.", "sale_cancelled")
+        items = {item.pk: item for item in sale.items.select_related("variant")}
+        if len({line.sale_item_id for line in lines}) != len(lines):
+            raise DomainError("Item repetido na devolução.", "return_duplicate_item")
+        for line in lines:
+            item = items.get(line.sale_item_id or 0)
+            if item is None:
+                raise DomainError("Item não pertence a esta venda.", "return_foreign_item")
+            remaining = item.quantity - item.quantity_returned
+            if line.quantity > remaining:
+                raise ConflictError(f"{item.variant.sku}: restam {remaining} para devolver.", "return_over_sold")
+            refunded, cost_back = _returned_so_far(item)
+            if line.quantity == remaining:
+                refund, cost = item.net_amount - refunded, item.cost_value - cost_back
+            else:
+                refund = cents(item.net_amount * line.quantity / item.quantity)
+                cost = q4(item.cost_value * line.quantity / item.quantity)
+            planned.append((item.variant, line.quantity, refund, cost, item))
+    else:
+        for line in lines:
+            if line.variant is None:
+                raise DomainError("Sem cupom, informe o SKU devolvido.", "return_variant_missing")
+            price = current_price(line.variant)
+            if price is None:
+                raise DomainError(f"{line.variant.sku} está sem preço.", "variant_without_price")
+            planned.append((line.variant, line.quantity, cents(price * line.quantity), None, None))
+
+    total = sum((refund for _, _, refund, _, _ in planned), ZERO)
+    if session is not None and total > expected_cash(session):
+        raise ConflictError("Não há dinheiro suficiente na gaveta para esta devolução.", "refund_exceeds_drawer")
+    entry = post_entry(
+        kind=StockEntry.Kind.SALE_RETURN,
+        operations=[
+            Inflow(v.pk, location.pk, qty, cost / qty, value=cost) if cost is not None else Gain(v.pk, location.pk, qty)
+            for v, qty, _, cost, _ in planned
+        ],
+        user=user,
+        source_ref=f"sale:{original_sale.pk}" if original_sale else "return:no-receipt",
+        note=reason,
+        approval=approval,
+    )
+    values = {m.variant_id: m.value_delta for m in entry.movements.all()}
+    credit = None
+    if refund_method == SaleReturn.Refund.STORE_CREDIT:
+        # Referenced by the return's stock entry: the return itself needs the credit to exist first.
+        credit = issue_credit(
+            user=user, location=location, amount=total, source_ref=f"stock-entry:{entry.pk}", customer=customer
+        )
+    sale_return = SaleReturn.objects.create(
+        location=location,
+        original_sale=original_sale,
+        customer=customer or (original_sale.customer if original_sale else None),
+        refund_method=refund_method,
+        total=total,
+        reason=reason,
+        session=session,
+        store_credit=credit,
+        approval=approval,
+        stock_entry=entry,
+        created_by=user,
+    )
+    ReturnLine.objects.bulk_create(
+        ReturnLine(
+            sale_return=sale_return,
+            sale_item=item,
+            variant=variant,
+            quantity=qty,
+            refund_amount=refund,
+            cost_value=cost if cost is not None else values[variant.pk],
+        )
+        for variant, qty, refund, cost, item in planned
+    )
+    for _, qty, _, _, item in planned:
+        if item is not None:
+            SaleItem.objects.filter(pk=item.pk).update(quantity_returned=F("quantity_returned") + qty)
+    if session is not None:
+        CashMovement.objects.create(
+            session=session,
+            kind=CashMovement.Kind.REFUND,
+            amount=total,
+            reason=f"Devolução {sale_return.pk}",
+            created_by=user,
+        )
+    record(
+        actor=user,
+        action="sale.returned" if original_sale else "sale.returned_without_receipt",
+        location=location,
+        target=sale_return,
+        data={
+            "sale": original_sale.pk if original_sale else None,
+            "total": str(total),
+            "refund": refund_method,
+            "lines": [{"sku": v.sku, "quantity": q} for v, q, _, _, _ in planned],
+        },
+    )
+    return sale_return
+
+
+@transaction.atomic
+def exchange(
+    *,
+    user: User,
+    client_request_id: UUID,
+    original_sale: Sale | None,
+    returned: list[ReturnInput],
+    reason: str,
+    items: list[ItemInput],
+    payments: list[PaymentInput],
+    approval_id: int | None = None,
+) -> tuple[SaleReturn, Sale]:
+    """A return and a new sale in one transaction; the credit from the return pays first."""
+    session = open_session_of(user, lock=True)
+    sale_return = return_items(
+        user=user,
+        location=session.register.location,
+        lines=returned,
+        refund_method=SaleReturn.Refund.STORE_CREDIT,
+        reason=reason,
+        original_sale=original_sale,
+        approval_id=approval_id,
+    )
+    assert sale_return.store_credit_id is not None  # refunded in store credit above
+    credit = StoreCredit.objects.get(pk=sale_return.store_credit_id)
+    sale, _ = create_sale(
+        user=user,
+        client_request_id=client_request_id,
+        items=items,
+        payments=payments,
+        customer=sale_return.customer,
+        credit_first=credit,
+    )
+    return sale_return, sale

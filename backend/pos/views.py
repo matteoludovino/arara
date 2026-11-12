@@ -15,13 +15,17 @@ from accounts.permissions import requires, requires_any
 from accounts.visibility import cost_context
 
 from . import services
-from .models import CashRegister, CashSession, Customer, Sale, StoreCredit
+from .models import CashRegister, CashSession, Customer, Sale, SaleReturn, StoreCredit
 from .serializers import (
+    CancelSaleSerializer,
     CashMovementSerializer,
     CloseSessionSerializer,
     CustomerSerializer,
+    ExchangeInputSerializer,
     OpenSessionSerializer,
     RegisterSerializer,
+    ReturnInputSerializer,
+    ReturnSerializer,
     SaleInputSerializer,
     SaleSerializer,
     SessionSerializer,
@@ -142,6 +146,81 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         body = SaleSerializer(self.get_queryset().get(pk=sale.pk), context=self.get_serializer_context()).data
         # A retried request gets the sale it already made, with 200 instead of 201.
         return Response(body, status=status.HTTP_201_CREATED if created else status.HTTP_200_OK)
+
+    @action(detail=True, methods=["post"])
+    def cancel(self, request: Request, pk: str) -> Response:
+        data = CancelSaleSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        sale = services.cancel_sale(user=_user(request), sale=self.get_object(), reason=data.validated_data["reason"])
+        return Response(SaleSerializer(sale, context=self.get_serializer_context()).data)
+
+
+class ReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.GenericViewSet[SaleReturn]):
+    serializer_class = ReturnSerializer
+    permission_classes = (Sellers,)
+    filterset_fields = ("location", "original_sale")
+
+    def get_queryset(self) -> QuerySet[SaleReturn]:
+        return SaleReturn.objects.filter(location_id__in=location_ids_for(_user(self.request))).select_related(
+            "location", "original_sale", "store_credit", "created_by"
+        )
+
+    def get_serializer_context(self) -> dict[str, Any]:
+        return cost_context(super().get_serializer_context(), self.request)
+
+    def create(self, request: Request) -> Response:
+        data = ReturnInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        values = data.validated_data
+        sale_return = services.return_items(
+            user=_user(request),
+            location=values["location"],
+            lines=[_return_line(line) for line in values["lines"]],
+            refund_method=values["refund_method"],
+            reason=values["reason"],
+            original_sale=values["sale"],
+            customer=values["customer"],
+            approval_id=values["approval"],
+        )
+        return Response(
+            ReturnSerializer(sale_return, context=self.get_serializer_context()).data, status=status.HTTP_201_CREATED
+        )
+
+
+def _return_line(line: dict[str, Any]) -> services.ReturnInput:
+    return services.ReturnInput(quantity=line["quantity"], sale_item_id=line["sale_item"], variant=line["variant"])
+
+
+class ExchangeView(APIView):
+    """A return and a new sale at once: the credit from the return pays first."""
+
+    permission_classes = (Sellers,)
+
+    def post(self, request: Request) -> Response:
+        data = ExchangeInputSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        values = data.validated_data
+        sale_return, sale = services.exchange(
+            user=_user(request),
+            client_request_id=values["client_request_id"],
+            original_sale=values["sale"],
+            returned=[_return_line(line) for line in values["returned"]],
+            reason=values["reason"],
+            items=[services.ItemInput(**item) for item in values["items"]],
+            payments=[services.PaymentInput(**payment) for payment in values["payments"]],
+            approval_id=values["approval"],
+        )
+        context = cost_context({}, request)
+        assert sale_return.store_credit_id is not None  # an exchange always refunds in store credit
+        credit = StoreCredit.objects.get(pk=sale_return.store_credit_id)  # read again: the sale just spent from it
+        return Response(
+            {
+                "return": ReturnSerializer(sale_return, context=context).data,
+                "sale": SaleSerializer(sale, context=context).data,
+                "store_credit": StoreCreditSerializer(credit).data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
 
 
 class StoreCreditView(APIView):
