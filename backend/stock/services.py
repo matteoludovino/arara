@@ -35,12 +35,17 @@ def q4(value: Decimal) -> Decimal:
 
 @dataclass(frozen=True)
 class Inflow:
-    """Goods entering inventory from outside (a purchase, a customer return) at a known unit cost."""
+    """
+    Goods entering inventory from outside (a purchase, a customer return) at a known unit cost.
+    `value`, when given, is the exact total: a cancelled sale gives back exactly what it took,
+    not unit cost × quantity rounded again.
+    """
 
     variant_id: int
     location_id: int
     quantity: int
     unit_cost: Decimal
+    value: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -221,7 +226,8 @@ def post_entry(
             cost = costs[op.variant_id]
             if isinstance(op, Inflow | Gain):
                 unit_cost = op.unit_cost if isinstance(op, Inflow) else _gain_cost(cost)
-                value = q4(unit_cost * op.quantity)
+                exact = op.value if isinstance(op, Inflow) else None
+                value = q4(exact) if exact is not None else q4(unit_cost * op.quantity)
                 cost.quantity += op.quantity
                 cost.value += value
                 move((op.variant_id, op.location_id), op.quantity, value, q4(unit_cost))

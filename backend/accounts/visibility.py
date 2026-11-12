@@ -7,7 +7,16 @@ from rest_framework.request import Request
 
 from .capabilities import Capability, can
 
-COST_FIELDS = ("average_cost", "stock_value", "value_delta", "unit_cost", "total_cost", "last_unit_cost")
+COST_FIELDS = (
+    "average_cost",
+    "stock_value",
+    "value_delta",
+    "unit_cost",
+    "total_cost",
+    "last_unit_cost",
+    "cost_value",
+    "margin",
+)
 
 
 def cost_context(context: Mapping[str, Any], request: Request) -> dict[str, Any]:

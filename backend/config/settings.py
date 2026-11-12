@@ -57,7 +57,11 @@ INSTALLED_APPS = [
     "purchasing",
     "transfers",
     "counts",
+    "pos",
 ]
+
+# A cashier may give up to this discount on a sale on their own; above it, a manager approves.
+POS_CASHIER_MAX_DISCOUNT_PERCENT = env.int("POS_CASHIER_MAX_DISCOUNT_PERCENT", default=10)
 
 AUTH_USER_MODEL = "accounts.User"
 
