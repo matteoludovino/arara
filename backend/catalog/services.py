@@ -162,3 +162,13 @@ def search_products(products: QuerySet[Product], q: str) -> QuerySet[Product]:
     # A subquery, not a join on variants: a join would multiply the rows (and any count annotated on them).
     by_sku = ProductVariant.objects.filter(sku__icontains=q).values("product_id")
     return products.filter(Q(name__icontains=q) | Q(reference__icontains=q) | Q(pk__in=by_sku))
+
+
+def variant_for_code(code: str, variants: QuerySet[ProductVariant] | None = None) -> ProductVariant | None:
+    """A scanned barcode or a typed SKU, resolved to one variant (the till and the counts use it)."""
+    code = code.strip()
+    if not code:
+        return None
+    variants = variants if variants is not None else ProductVariant.objects.all()
+    barcode = Barcode.objects.filter(code=code).values_list("variant_id", flat=True).first()
+    return variants.filter(pk=barcode).first() if barcode else variants.filter(sku__iexact=code).first()

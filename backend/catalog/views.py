@@ -15,7 +15,7 @@ from accounts.models import User
 from accounts.permissions import read_or
 
 from . import services
-from .models import Barcode, Brand, Category, Collection, Color, Price, Product, ProductVariant, SizeGrid
+from .models import Brand, Category, Collection, Color, Price, Product, ProductVariant, SizeGrid
 from .serializers import (
     AddColorsSerializer,
     BrandSerializer,
@@ -183,8 +183,7 @@ class LookupView(APIView):
         if not code:
             raise NotFound("Informe o código.")
         variants = services.with_current_price(ProductVariant.objects.select_related("product", "size", "color"))
-        barcode = Barcode.objects.filter(code=code).values_list("variant_id", flat=True).first()
-        variant = variants.filter(pk=barcode).first() if barcode else variants.filter(sku__iexact=code).first()
+        variant = services.variant_for_code(code, variants)
         if variant is None:
             raise NotFound("Código não encontrado.")
         return Response(LookupSerializer(variant).data)
