@@ -159,4 +159,6 @@ def search_products(products: QuerySet[Product], q: str) -> QuerySet[Product]:
     q = q.strip()
     if not q:
         return products
-    return products.filter(Q(name__icontains=q) | Q(reference__icontains=q) | Q(variants__sku__icontains=q)).distinct()
+    # A subquery, not a join on variants: a join would multiply the rows (and any count annotated on them).
+    by_sku = ProductVariant.objects.filter(sku__icontains=q).values("product_id")
+    return products.filter(Q(name__icontains=q) | Q(reference__icontains=q) | Q(pk__in=by_sku))

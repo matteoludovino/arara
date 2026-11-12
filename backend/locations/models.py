@@ -15,6 +15,8 @@ class Location(models.Model):
         LOSS = "loss", "Perdas"
 
     PHYSICAL_KINDS = (Kind.STORE, Kind.WAREHOUSE)
+    # Where the company's inventory is (and is valued). Losses have left it.
+    INVENTORY_KINDS = (Kind.STORE, Kind.WAREHOUSE, Kind.TRANSIT)
 
     code = models.CharField(max_length=12)
     name = models.CharField(max_length=80)
@@ -43,3 +45,7 @@ class Location(models.Model):
     @property
     def is_physical(self) -> bool:
         return self.kind in self.PHYSICAL_KINDS
+
+    @property
+    def holds_inventory(self) -> bool:
+        return self.kind in self.INVENTORY_KINDS

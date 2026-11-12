@@ -86,3 +86,13 @@ def can(user: User | AnonymousUser, capability: Capability, location: Location |
     if capability not in capabilities_of(user):
         return False
     return location is None or works_at(user, location)  # type: ignore[arg-type]
+
+
+def location_ids_for(user: User) -> list[int]:
+    """Physical locations whose data this person sees: every one for an owner, theirs otherwise."""
+    from locations.models import Location
+
+    physical = Location.objects.filter(kind__in=Location.PHYSICAL_KINDS)
+    if user.role != Role.OWNER:
+        physical = physical.filter(staff=user)
+    return list(physical.values_list("pk", flat=True))

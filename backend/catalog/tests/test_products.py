@@ -150,3 +150,13 @@ def test_creation_records_the_initial_price(make_product: Callable[..., Product]
     event = AuditEvent.objects.get(action="price.changed")
     assert event.data["to"] == "79.90"
     assert event.data["from"] is None
+
+
+def test_search_does_not_inflate_the_sku_count(
+    api_as: Callable[..., APIClient], make_product: Callable[..., Product]
+) -> None:
+    make_product(reference="CAM-001", color_names=("preto", "branco"))
+    client = api_as(Role.CASHIER)
+    for q in ("", "camiseta", "CAM-001-PRE"):
+        rows = client.get("/api/catalog/products", {"q": q}).json()["results"]
+        assert [(r["reference"], r["variant_count"]) for r in rows] == [("CAM-001", 10)], q
