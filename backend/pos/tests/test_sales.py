@@ -252,3 +252,16 @@ def test_concurrent_tills_number_without_gaps(make_user: Callable[..., User], sh
     assert errors == []
     assert sorted(Sale.objects.values_list("number", flat=True)) == list(range(1, 11))
     assert SaleItem.objects.count() == 10
+
+
+def test_salespeople_of_a_store(
+    api_as: Callable[..., APIClient], make_user: Callable[..., User], store: Location, other_store: Location
+) -> None:
+    ana = make_user(Role.CASHIER, name="Ana")
+    make_user(Role.MANAGER, name="Bruno")
+    make_user(Role.STOCKIST, name="Caio")  # doesn't sell
+    make_user(Role.CASHIER, name="Davi", locations=[other_store])
+    make_user(Role.CASHIER, name="Eva", is_active=False)
+    names = [p["name"] for p in api_as(user=ana).get(f"/api/pos/salespeople?location={store.pk}").json()]
+    assert names == ["Ana", "Bruno"]
+    assert api_as(user=ana).get(f"/api/pos/salespeople?location={other_store.pk}").status_code == 403

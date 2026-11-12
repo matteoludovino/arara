@@ -13,5 +13,6 @@ router.register("returns", views.ReturnViewSet, basename="sale-return")
 urlpatterns = [
     path("store-credits/<str:code>", views.StoreCreditView.as_view(), name="store-credit"),
     path("exchanges", views.ExchangeView.as_view(), name="exchange"),
+    path("salespeople", views.SalespeopleView.as_view(), name="salespeople"),
     *router.urls,
 ]

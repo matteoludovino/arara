@@ -24,6 +24,8 @@ environ.Env.read_env(BASE_DIR / ".env", overwrite=False)
 ENVIRONMENT = env.str("ENVIRONMENT", default="development")  # development | test | production
 PRODUCTION = ENVIRONMENT == "production"
 DEBUG = env.bool("DEBUG", default=not PRODUCTION)
+# A public demo: the data is fictional and reset every night (see demo/seed.py).
+DEMO_MODE = env.bool("DEMO_MODE", default=False)
 
 SECRET_KEY = env.str("SECRET_KEY", default=DEV_SECRET_KEY)
 if PRODUCTION and (SECRET_KEY == DEV_SECRET_KEY or len(SECRET_KEY) < 50):
@@ -59,6 +61,7 @@ INSTALLED_APPS = [
     "counts",
     "pos",
     "reports",
+    "demo",
 ]
 
 # A cashier may give up to this discount on a sale on their own; above it, a manager approves.

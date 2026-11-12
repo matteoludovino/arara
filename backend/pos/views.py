@@ -3,8 +3,8 @@ from typing import Any, cast
 from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
-from drf_spectacular.utils import extend_schema
-from rest_framework import mixins, status, viewsets
+from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
@@ -12,9 +12,10 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from accounts.capabilities import Capability, can, location_ids_for
-from accounts.models import User
+from accounts.models import Role, User
 from accounts.permissions import requires, requires_any
 from accounts.visibility import cost_context
+from locations.models import Location
 
 from . import services
 from .models import CashRegister, CashSession, Customer, Sale, SaleReturn, StoreCredit
@@ -237,3 +238,23 @@ class StoreCreditView(APIView):
     def get(self, request: Request, code: str) -> Response:
         credit = get_object_or_404(StoreCredit.objects.select_related("customer"), code=code.strip().upper())
         return Response(StoreCreditSerializer(credit).data)
+
+
+class SalespeopleView(APIView):
+    """Who can be credited with a sale at a store: its active managers and cashiers."""
+
+    permission_classes = (Sellers,)
+
+    @extend_schema(
+        parameters=[OpenApiParameter("location", int, required=True)],
+        responses=inline_serializer(
+            "Salesperson", {"id": serializers.IntegerField(), "name": serializers.CharField()}, many=True
+        ),
+    )
+    def get(self, request: Request) -> Response:
+        raw = request.query_params.get("location", "")
+        location = get_object_or_404(Location, pk=int(raw) if raw.isdigit() else 0)
+        if not can(request.user, Capability.POS_SELL, location):
+            raise PermissionDenied("Você não atende nesta loja.")
+        people = User.objects.filter(is_active=True, locations=location, role__in=[Role.MANAGER, Role.CASHIER])
+        return Response(list(people.order_by("name").values("id", "name")))

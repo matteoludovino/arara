@@ -28,3 +28,10 @@ def is_valid_cnpj(cnpj: str) -> bool:
     first = _digit(values, _FIRST_WEIGHTS)
     second = _digit([*values, first], _SECOND_WEIGHTS)
     return cnpj[12:] == f"{first}{second}"
+
+
+def with_check_digits(base: str) -> str:
+    """The twelve-character base followed by its two check digits."""
+    values = [ord(c) - 48 for c in base]
+    first = _digit(values, _FIRST_WEIGHTS)
+    return f"{base}{first}{_digit([*values, first], _SECOND_WEIGHTS)}"
