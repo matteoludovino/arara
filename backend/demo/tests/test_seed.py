@@ -30,3 +30,10 @@ def test_a_short_story_is_consistent() -> None:
 def test_reset_needs_demo_mode() -> None:
     with pytest.raises(CommandError, match="DEMO_MODE"):
         call_command("seed_demo", "--reset")
+
+
+def test_sale_numbers_follow_the_clock() -> None:
+    Seed(days=3).run()
+    for store in {s.location_id for s in Sale.objects.all()}:
+        by_number = list(Sale.objects.filter(location_id=store).order_by("number").values_list("created_at", flat=True))
+        assert by_number == sorted(by_number)

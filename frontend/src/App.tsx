@@ -17,6 +17,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Home /> },
       { path: '/pdv', ...page(() => import('./pos/PosPage').then((m) => ({ Component: m.PosPage }))) },
+      { path: '/vendas', ...page(() => import('./pages/sales').then((m) => ({ Component: m.SalesPage }))) },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

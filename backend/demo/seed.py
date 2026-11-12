@@ -467,7 +467,10 @@ class Seed:
         salespeople = [self.managers[store.pk], *self.cashiers[store.pk]]
         sold = []
         for n in range(sales_count):
-            self.clock.at(day, 10 + n * 10 // max(sales_count, 1), self.rng.randint(0, 59))
+            # Each sale in its own slot of the 10:00-20:00 day: numbers and times go up together.
+            slot = 600 // max(sales_count, 1)
+            minute = n * slot + self.rng.randint(0, slot - 1)
+            self.clock.at(day, 10 + minute // 60, minute % 60)
             lines: dict[int, tuple[ProductVariant, int]] = {}
             for _ in range(self.rng.choices([1, 1, 2, 3])[0]):
                 picked = self._pick(store, selling)

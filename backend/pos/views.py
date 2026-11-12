@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
@@ -129,7 +129,7 @@ class SaleViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Gen
         return (
             Sale.objects.filter(location_id__in=location_ids_for(_user(self.request)))
             .select_related("location", "cashier", "salesperson", "customer")
-            .prefetch_related("payments")
+            .prefetch_related("payments", Prefetch("items", queryset=services.SALE_ITEMS))
         )
 
     def get_serializer_context(self) -> dict[str, Any]:

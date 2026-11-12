@@ -216,8 +216,8 @@ class SaleSerializer(serializers.ModelSerializer[Sale]):
         )
 
     def get_items(self, sale: Sale) -> list[dict[str, Any]]:
-        items = sale.items.select_related("variant__product", "variant__size", "variant__color")
-        return SaleItemSerializer(items, many=True, context=self.context).data  # type: ignore[return-value]
+        # Prefetched in lists (pos.services.SALE_ITEMS); one query for a single sale.
+        return SaleItemSerializer(sale.items.all(), many=True, context=self.context).data  # type: ignore[return-value]
 
 
 class StoreCreditSerializer(serializers.ModelSerializer[StoreCredit]):

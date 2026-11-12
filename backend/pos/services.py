@@ -47,6 +47,10 @@ CENT = Decimal("0.01")
 CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # no 0/O, 1/I: read aloud at the counter
 
 
+# A sale's lines with what their receipt shows: prefetch this when listing sales.
+SALE_ITEMS = SaleItem.objects.select_related("variant__product", "variant__size", "variant__color")
+
+
 def cents(value: Decimal) -> Decimal:
     return value.quantize(CENT, rounding=ROUND_HALF_UP)
 

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Alert, Button, cx, Dialog, Input, Select } from '../components/ui';
 import { api } from '../lib/api';
 import { brlCents, fromCents, toCents } from '../lib/money';
@@ -74,6 +74,13 @@ export function PaymentDialog({
       update(row.key, { credit: null });
     }
   };
+  // A credit handed over from an exchange: look up its balance and use as much as it covers.
+  useEffect(() => {
+    const first = rows[0];
+    if (initialCredit && first?.method === 'store_credit' && !first.amount) void checkCredit(first);
+    // Once, on opening.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const cashShort = rows.some((r) => r.method === 'cash' && r.tendered && cents(r.tendered) < cents(r.amount));
   const ready = rows.length > 0 && remaining === 0 && rows.every((r) => cents(r.amount) > 0) && !cashShort;
   const submit = () =>

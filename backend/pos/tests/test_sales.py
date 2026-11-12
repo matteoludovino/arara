@@ -3,6 +3,7 @@ import uuid
 from collections.abc import Callable
 from datetime import timedelta
 from decimal import Decimal
+from typing import Any
 
 import pytest
 from django.db import connection
@@ -265,3 +266,17 @@ def test_salespeople_of_a_store(
     names = [p["name"] for p in api_as(user=ana).get(f"/api/pos/salespeople?location={store.pk}").json()]
     assert names == ["Ana", "Bruno"]
     assert api_as(user=ana).get(f"/api/pos/salespeople?location={other_store.pk}").status_code == 403
+
+
+def test_listing_sales_takes_a_fixed_number_of_queries(
+    api_as: Callable[..., APIClient],
+    cashier: User,
+    session: CashSession,
+    shirt: Product,
+    django_assert_max_num_queries: Any,
+) -> None:
+    client = api_as(user=cashier)
+    for size in ("P", "M", "G", "GG"):
+        post_sale(client, sale_payload((sku(shirt, size), 1), payments=[pay_cash("79.90")]))
+    with django_assert_max_num_queries(7):  # not one more per sale
+        assert len(client.get("/api/pos/sales").json()["results"]) == 4
