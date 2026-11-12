@@ -311,6 +311,4 @@ class ReturnSerializer(serializers.ModelSerializer[SaleReturn]):
         )
 
     def get_lines(self, sale_return: SaleReturn) -> list[dict[str, Any]]:
-        return ReturnLineSerializer(  # type: ignore[return-value]
-            sale_return.lines.select_related("variant"), many=True, context=self.context
-        ).data
+        return ReturnLineSerializer(sale_return.lines.all(), many=True, context=self.context).data  # type: ignore[return-value]

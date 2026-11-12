@@ -54,8 +54,8 @@ class TransferSerializer(serializers.ModelSerializer[Transfer]):
         )
 
     def get_lines(self, transfer: Transfer) -> list[dict[str, Any]]:
-        lines = transfer.lines.select_related("variant__product", "variant__size", "variant__color")
-        return TransferLineSerializer(lines, many=True).data  # type: ignore[return-value]
+        # Prefetched in lists (see the view); one query for a single transfer.
+        return TransferLineSerializer(transfer.lines.all(), many=True).data  # type: ignore[return-value]
 
 
 class LineInputSerializer(serializers.Serializer[None]):

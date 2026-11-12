@@ -168,8 +168,10 @@ class ReturnViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.G
     filterset_fields = ("location", "original_sale")
 
     def get_queryset(self) -> QuerySet[SaleReturn]:
-        return SaleReturn.objects.filter(location_id__in=location_ids_for(_user(self.request))).select_related(
-            "location", "original_sale", "store_credit", "created_by"
+        return (
+            SaleReturn.objects.filter(location_id__in=location_ids_for(_user(self.request)))
+            .select_related("location", "original_sale", "store_credit", "created_by")
+            .prefetch_related("lines__variant")
         )
 
     def get_serializer_context(self) -> dict[str, Any]:

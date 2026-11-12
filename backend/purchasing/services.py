@@ -343,19 +343,25 @@ def suggestions(location_ids: list[int]) -> list[dict[str, object]]:
     levels = StockLevel.objects.filter(location_id__in=location_ids, min_quantity__gt=0).select_related(
         "variant__product", "variant__size", "variant__color", "location"
     )
+    short = [
+        lvl for lvl in levels if lvl.quantity + on_order.get((lvl.variant_id, lvl.location_id), 0) < lvl.min_quantity
+    ]
+    # The latest receipt of each of those SKUs, in one query (DISTINCT ON the variant).
+    latest = {
+        line.order_line.variant_id: line
+        for line in GoodsReceiptLine.objects.filter(
+            order_line__variant__in=[lvl.variant_id for lvl in short], receipt__cancelled_at__isnull=True
+        )
+        .select_related("order_line", "receipt__order")
+        .order_by("order_line__variant_id", "-receipt__received_at", "-pk")
+        .distinct("order_line__variant_id")
+    }
     rows: list[dict[str, object]] = []
-    for level in levels:
+    for level in short:
         pending = on_order.get((level.variant_id, level.location_id), 0)
         available = level.quantity + pending
-        if available >= level.min_quantity:
-            continue
         target = level.max_quantity if level.max_quantity is not None else level.min_quantity
-        last = (
-            GoodsReceiptLine.objects.filter(order_line__variant=level.variant, receipt__cancelled_at__isnull=True)
-            .select_related("receipt__order__supplier")
-            .order_by("-receipt__received_at")
-            .first()
-        )
+        last = latest.get(level.variant_id)
         rows.append(
             {
                 "variant": level.variant_id,

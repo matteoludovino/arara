@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import QuerySet
+from django.db.models import Prefetch, QuerySet
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
@@ -15,7 +15,7 @@ from accounts.permissions import requires, requires_any
 from accounts.visibility import cost_context
 
 from . import services
-from .models import GoodsReceipt, PurchaseOrder, PurchaseReturn, Supplier
+from .models import GoodsReceipt, GoodsReceiptLine, PurchaseOrder, PurchaseOrderLine, PurchaseReturn, Supplier
 from .serializers import (
     OrderLinesSerializer,
     OrderSerializer,
@@ -59,8 +59,17 @@ class OrderViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.Ge
         return [BuyersOrReceivers()]
 
     def get_queryset(self) -> QuerySet[PurchaseOrder]:
-        return PurchaseOrder.objects.filter(location_id__in=location_ids_for(_user(self.request))).select_related(
-            "supplier", "location", "created_by"
+        return (
+            PurchaseOrder.objects.filter(location_id__in=location_ids_for(_user(self.request)))
+            .select_related("supplier", "location", "created_by")
+            .prefetch_related(
+                Prefetch(
+                    "lines",
+                    queryset=PurchaseOrderLine.objects.select_related(
+                        "variant__product", "variant__size", "variant__color"
+                    ),
+                )
+            )
         )
 
     def get_serializer_context(self) -> dict[str, Any]:
@@ -138,8 +147,12 @@ class ReceiptViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets.
         return [Buyers()] if self.action == "cancel" else [BuyersOrReceivers()]
 
     def get_queryset(self) -> QuerySet[GoodsReceipt]:
-        return GoodsReceipt.objects.filter(order__location_id__in=location_ids_for(_user(self.request))).select_related(
-            "order", "received_by"
+        return (
+            GoodsReceipt.objects.filter(order__location_id__in=location_ids_for(_user(self.request)))
+            .select_related("order", "received_by")
+            .prefetch_related(
+                Prefetch("lines", queryset=GoodsReceiptLine.objects.select_related("order_line__variant"))
+            )
         )
 
     def get_serializer_context(self) -> dict[str, Any]:

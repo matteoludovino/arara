@@ -213,6 +213,20 @@ def test_restock_suggestions_count_what_is_on_order(
 
 
 @pytest.mark.django_db
+def test_suggestions_quote_the_latest_receipt(
+    owner: User, supplier: Supplier, store: Location, shirt: Product, api_as: Callable[..., APIClient]
+) -> None:
+    m = sku(shirt, "M")
+    other = Supplier.objects.create(name="Outra Malharia")
+    for who, cost in ((supplier, "20.00"), (other, "25.00")):
+        po = order(owner, who, store, (m, 1, cost))
+        services.receive(user=owner, order=po, lines=[services.ReceiptLineInput(lines_of(po)["CAM-001-PRE-M"].pk, 1)])
+    StockLevel.objects.filter(variant=m, location=store).update(min_quantity=5, max_quantity=10)
+    [row] = api_as(Role.MANAGER).get("/api/purchasing/suggestions").json()
+    assert (row["last_supplier"], row["last_unit_cost"], row["suggested"]) == (other.pk, "25.0000", 8)
+
+
+@pytest.mark.django_db
 class TestApi:
     def test_the_stockist_receives_without_seeing_or_changing_costs(
         self, owner: User, supplier: Supplier, store: Location, shirt: Product, api_as: Callable[..., APIClient]

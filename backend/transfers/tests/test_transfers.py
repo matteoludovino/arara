@@ -142,3 +142,10 @@ def test_the_checker_notices_goods_in_transit_without_a_transfer(
     Transfer.objects.filter(pk=transfer.pk).update(status=S.CANCELLED)  # behind the services' back
     assert any("transit stock differs" in problem for problem in all_problems())
     Transfer.objects.filter(pk=transfer.pk).update(status=S.IN_TRANSIT)  # leave it consistent
+
+
+def test_any_store_is_a_destination(api_as: Callable[..., APIClient], store: Location, other_store: Location) -> None:
+    # A manager of one store still sends goods to the others; transit and losses aren't places to send to.
+    codes = [p["code"] for p in api_as(Role.MANAGER, locations=[store]).get("/api/transfers/destinations").json()]
+    assert sorted(codes) == ["CENTRO", "SHOP"]
+    assert api_as(Role.CASHIER).get("/api/transfers/destinations").status_code == 403

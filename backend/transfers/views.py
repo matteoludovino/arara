@@ -1,6 +1,7 @@
 from typing import cast
 
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
+from drf_spectacular.utils import extend_schema
 from rest_framework import mixins, status, viewsets
 from rest_framework.decorators import action
 from rest_framework.request import Request
@@ -9,9 +10,11 @@ from rest_framework.response import Response
 from accounts.capabilities import Capability, location_ids_for
 from accounts.models import User
 from accounts.permissions import requires
+from accounts.serializers import LocationRefSerializer
+from locations.models import Location
 
 from . import services
-from .models import Transfer
+from .models import Transfer, TransferLine
 from .serializers import (
     CancelSerializer,
     LinesSerializer,
@@ -35,9 +38,23 @@ class TransferViewSet(mixins.ListModelMixin, mixins.RetrieveModelMixin, viewsets
 
     def get_queryset(self) -> QuerySet[Transfer]:
         mine = location_ids_for(_user(self.request))
-        return Transfer.objects.filter(Q(origin_id__in=mine) | Q(destination_id__in=mine)).select_related(
-            "origin", "destination", "created_by", "dispatched_by", "received_by"
+        return (
+            Transfer.objects.filter(Q(origin_id__in=mine) | Q(destination_id__in=mine))
+            .select_related("origin", "destination", "created_by", "dispatched_by", "received_by")
+            .prefetch_related(
+                Prefetch(
+                    "lines",
+                    queryset=TransferLine.objects.select_related("variant__product", "variant__size", "variant__color"),
+                )
+            )
         )
+
+    @extend_schema(responses=LocationRefSerializer(many=True))
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def destinations(self, request: Request) -> Response:
+        """Where goods can go: every active store and warehouse, not only the user's own."""
+        places = Location.objects.filter(kind__in=Location.PHYSICAL_KINDS, is_active=True)
+        return Response(LocationRefSerializer(places, many=True).data)
 
     def _render(self, transfer: Transfer, code: int = status.HTTP_200_OK) -> Response:
         return Response(TransferSerializer(self.get_queryset().get(pk=transfer.pk)).data, status=code)

@@ -83,8 +83,8 @@ class OrderSerializer(HidesCosts, serializers.ModelSerializer[PurchaseOrder]):
         )
 
     def get_lines(self, order: PurchaseOrder) -> list[dict[str, Any]]:
-        lines = order.lines.select_related("variant__product", "variant__size", "variant__color")
-        return OrderLineSerializer(lines, many=True, context=self.context).data  # type: ignore[return-value]
+        # Prefetched in lists (see the views); one query for a single order.
+        return OrderLineSerializer(order.lines.all(), many=True, context=self.context).data  # type: ignore[return-value]
 
     def get_total_cost(self, order: PurchaseOrder) -> str:
         total = sum((line.unit_cost * line.quantity_ordered for line in order.lines.all()), Decimal(0))
@@ -151,8 +151,7 @@ class ReceiptSerializer(serializers.ModelSerializer[GoodsReceipt]):
         )
 
     def get_lines(self, receipt: GoodsReceipt) -> list[dict[str, Any]]:
-        lines = receipt.lines.select_related("order_line__variant")
-        return ReceiptLineSerializer(lines, many=True, context=self.context).data  # type: ignore[return-value]
+        return ReceiptLineSerializer(receipt.lines.all(), many=True, context=self.context).data  # type: ignore[return-value]
 
 
 class ReturnLineInputSerializer(serializers.Serializer[None]):
