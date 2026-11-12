@@ -2,16 +2,16 @@ from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
 
-from stock.invariants import stock_problems
+from common.integrity import all_problems
 
 
 class Command(BaseCommand):
-    help = "Checks that stock levels and SKU costs agree with the stock ledger."
+    help = "Checks that stock levels, SKU costs and open documents agree with the stock ledger."
 
     def handle(self, *args: Any, **options: Any) -> None:
-        problems = stock_problems()
+        problems = all_problems()
         if problems:
             for problem in problems:
                 self.stderr.write(problem)
             raise CommandError(f"{len(problems)} stock inconsistencies found")
-        self.stdout.write(self.style.SUCCESS("Stock ledger, levels and costs agree."))
+        self.stdout.write(self.style.SUCCESS("Stock ledger, levels, costs and open documents agree."))
