@@ -52,6 +52,7 @@ INSTALLED_APPS = [
     "locations",
     "accounts",
     "audit",
+    "catalog",
 ]
 
 AUTH_USER_MODEL = "accounts.User"

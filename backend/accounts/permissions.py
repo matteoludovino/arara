@@ -17,3 +17,20 @@ def requires(*capabilities: Capability) -> type[BasePermission]:
 
     RequiresCapability.__name__ = f"Requires({', '.join(capabilities)})"
     return RequiresCapability
+
+
+def read_or(*capabilities: Capability) -> type[BasePermission]:
+    """Anyone signed in reads; writing needs every listed capability."""
+
+    class ReadOrCapability(BasePermission):
+        message = "Você não tem permissão para esta ação."
+
+        def has_permission(self, request: Request, view: Any) -> bool:
+            if not (request.user and request.user.is_authenticated):
+                return False
+            if request.method in ("GET", "HEAD", "OPTIONS"):
+                return True
+            return all(can(request.user, capability) for capability in capabilities)
+
+    ReadOrCapability.__name__ = f"ReadOr({', '.join(capabilities)})"
+    return ReadOrCapability

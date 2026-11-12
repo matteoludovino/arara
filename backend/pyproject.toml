@@ -39,6 +39,8 @@ extend-exclude = ["*/migrations/*"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "DJ", "SIM", "RUF", "DTZ", "PT"]
+# Portuguese text uses the en dash in ranges ("PP–GG") and × in "tamanho × cor" on purpose.
+allowed-confusables = ["–", "×"]
 
 [tool.mypy]
 python_version = "3.14"
