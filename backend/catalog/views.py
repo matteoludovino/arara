@@ -103,6 +103,8 @@ class ProductViewSet(viewsets.ModelViewSet[Product]):
                 current_price=Subquery(product_wide.values("amount")[:1]), variant_count=Count("variants")
             )
             products = services.search_products(products, self.request.query_params.get("q", ""))
+            # The count makes it a GROUP BY query, where Django drops Meta.ordering: say it again.
+            products = products.order_by("name", "pk")
         return products
 
     def get_serializer_class(self) -> Any:

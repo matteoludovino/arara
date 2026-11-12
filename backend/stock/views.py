@@ -1,6 +1,6 @@
 from typing import Any, cast
 
-from django.db.models import F, QuerySet
+from django.db.models import F, Q, QuerySet
 from django.shortcuts import get_object_or_404
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
@@ -45,6 +45,12 @@ class StockLevelViewSet(mixins.ListModelMixin, mixins.UpdateModelMixin, viewsets
         )
         if self.request.query_params.get("below_min") in ("1", "true"):
             levels = levels.filter(quantity__lt=F("min_quantity"))
+        if q := self.request.query_params.get("q", "").strip():
+            levels = levels.filter(
+                Q(variant__sku__icontains=q)
+                | Q(variant__product__reference__icontains=q)
+                | Q(variant__product__name__icontains=q)
+            )
         return levels.order_by("variant__product__name", "variant__color__name", "variant__size__position")
 
     def perform_update(self, serializer: StockLevelSerializer) -> None:  # type: ignore[override]

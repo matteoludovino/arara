@@ -160,3 +160,16 @@ def test_search_does_not_inflate_the_sku_count(
     for q in ("", "camiseta", "CAM-001-PRE"):
         rows = client.get("/api/catalog/products", {"q": q}).json()["results"]
         assert [(r["reference"], r["variant_count"]) for r in rows] == [("CAM-001", 10)], q
+
+
+def test_the_list_is_in_name_order(api_as: Callable[..., APIClient], make_product: Callable[..., Product]) -> None:
+    # Created out of order, and with ids that would sort them differently.
+    for reference, name in (
+        ("VES-001", "Vestido"),
+        ("BER-001", "Bermuda"),
+        ("CAM-001", "Camiseta"),
+        ("ALF-001", "Zíper"),
+    ):
+        make_product(reference=reference, name=name)
+    rows = api_as(Role.CASHIER).get("/api/catalog/products").json()["results"]
+    assert [r["name"] for r in rows] == ["Bermuda", "Camiseta", "Vestido", "Zíper"]

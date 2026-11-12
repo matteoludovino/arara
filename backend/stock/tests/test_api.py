@@ -102,6 +102,22 @@ class TestReading:
         assert manager.patch(url, {"min_quantity": 5, "max_quantity": 12}, format="json").status_code == 200
         assert [lvl["sku"] for lvl in levels(manager, below_min=1)] == [sku(shirt).sku]
 
+    def test_searching_by_sku_reference_or_name(
+        self,
+        api_as: Callable[..., APIClient],
+        owner: User,
+        shirt: Product,
+        make_product: Callable[..., Product],
+        store: Location,
+    ) -> None:
+        trousers = make_product(reference="CAL-020", name="Calça sarja")
+        stock(owner, sku(shirt), store, 1)
+        stock(owner, sku(trousers), store, 1)
+        manager = api_as(Role.MANAGER)
+        assert [lvl["reference"] for lvl in levels(manager, q="sarja")] == ["CAL-020"]
+        assert [lvl["reference"] for lvl in levels(manager, q="cam-001")] == ["CAM-001"]
+        assert [lvl["sku"] for lvl in levels(manager, q=sku(trousers).sku.lower())] == [sku(trousers).sku]
+
 
 class TestAdjusting:
     def payload(self, location: Location, *lines: tuple[ProductVariant, int], **extra: object) -> dict[str, object]:

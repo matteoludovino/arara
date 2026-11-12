@@ -14,7 +14,8 @@ export function VariantGrid({
 }: {
   product: Product;
   locationId?: number;
-  onPick: (item: Lookup) => void;
+  /** Without it the grid is read-only. */
+  onPick?: (item: Lookup) => void;
 }) {
   const { can } = useSession();
   const grid = useQuery({
@@ -59,9 +60,9 @@ export function VariantGrid({
                     {variant ? (
                       <button
                         type="button"
-                        disabled={!variant.is_active}
+                        disabled={!variant.is_active || !onPick}
                         onClick={() =>
-                          onPick({
+                          onPick?.({
                             id: variant.id,
                             sku: variant.sku,
                             product: { id: product.id, reference: product.reference, name: product.name },
@@ -72,7 +73,8 @@ export function VariantGrid({
                           })
                         }
                         className={cx(
-                          'h-11 w-14 rounded-lg border text-center tabular-nums hover:border-brand-500 hover:bg-brand-50 disabled:opacity-40',
+                          'h-11 w-14 rounded-lg border text-center tabular-nums enabled:hover:border-brand-500 enabled:hover:bg-brand-50',
+                          !variant.is_active && 'opacity-40',
                           stock === 0 ? 'border-stone-200 text-stone-400' : 'border-stone-300 text-stone-800',
                         )}
                         title={variant.sku}
