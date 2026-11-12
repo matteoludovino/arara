@@ -24,6 +24,8 @@ export const router = createBrowserRouter([
       { path: '/compras', ...page(() => import('./pages/purchasing').then((m) => ({ Component: m.PurchasingPage }))) },
       { path: '/transferencias', ...page(() => import('./pages/transfers').then((m) => ({ Component: m.TransfersPage }))) },
       { path: '/inventario', ...page(() => import('./pages/counts').then((m) => ({ Component: m.CountsPage }))) },
+      { path: '/relatorios', ...page(() => import('./pages/reports').then((m) => ({ Component: m.ReportsPage }))) },
+      { path: '/equipe', ...page(() => import('./pages/team').then((m) => ({ Component: m.TeamPage }))) },
     ],
   },
   { path: '*', element: <Navigate to="/" replace /> },

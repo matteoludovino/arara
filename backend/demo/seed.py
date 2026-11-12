@@ -31,7 +31,7 @@ from common.cnpj import with_check_digits as cnpj
 from counts import services as counts
 from locations.models import Location
 from pos import services as pos
-from pos.models import CashMovement, CashRegister, Payment, Sale, SaleReturn
+from pos.models import CashMovement, CashRegister, CashSession, Payment, Sale, SaleReturn
 from purchasing import services as purchasing
 from purchasing.models import PurchaseOrder, Supplier
 from stock.models import StockLevel
@@ -48,8 +48,10 @@ class Clock:
     def __init__(self, start: datetime) -> None:
         self.now = start
 
-    def at(self, day: datetime, hour: int, minute: int = 0) -> None:
-        self.now = datetime.combine(day.date(), time(hour, minute), tzinfo=TZ)
+    def forward_to(self, day: datetime, hour: int, minute: int = 0) -> None:
+        """That time of the day, or a minute after now if it's already past: time never goes back."""
+        target = datetime.combine(day.date(), time(hour, minute), tzinfo=TZ)
+        self.now = max(target, self.now + timedelta(minutes=1))
 
     def tick(self, minutes: int = 1) -> datetime:
         self.now += timedelta(minutes=minutes)
@@ -363,7 +365,7 @@ class Seed:
         """One order per supplier, quantities by size weight. Received in full unless told otherwise."""
         by_supplier: dict[int, list[purchasing.OrderLineInput]] = {}
         for item, product in self.products:
-            if item.out_of_season and self.clock.now > self.first_day + timedelta(days=5):
+            if item.out_of_season and self.clock.now > self.first_day:  # winter isn't bought again
                 continue
             for variant, weight in self._variants(product):
                 quantity = max(1, weight * scale * item.popularity // 6)
@@ -386,7 +388,9 @@ class Seed:
             purchasing.send_order(user=self.owner, order=order)
             orders.append(order)
             if receive:
-                self.clock.tick(60 * 24 * 3)  # it arrives a few days later
+                # Delivered the same evening: the clock never jumps ahead of the next day's sales,
+                # so the ledger stays in the order things happened.
+                self.clock.tick(60)
                 order_lines = list(order.lines.all())
                 if partial:  # some boxes didn't come: received later or the order is closed short
                     order_lines = order_lines[: len(order_lines) * 2 // 3]
@@ -455,75 +459,100 @@ class Seed:
             return [pos.PaymentInput(Payment.Method.CREDIT, total, installments=self.rng.choice([1, 1, 2, 3, 4, 6]))]
         return [pos.PaymentInput(Payment.Method(method), total)]
 
-    def sell_day(self, day: datetime, store: Location, sales_count: int) -> list[Sale]:
-        cashier = self.rng.choice(self.cashiers[store.pk])
-        self.clock.at(day, 10)
-        session = pos.open_session(user=cashier, register=self.registers[store.pk], opening_float=D("100.00"))
+    def _sell(self, store: Location, cashier: User, selling: list[tuple[Item, Product]]) -> Sale | None:
+        lines: dict[int, tuple[ProductVariant, int]] = {}
+        for _ in range(self.rng.choices([1, 1, 2, 3])[0]):
+            picked = self._pick(store, selling)
+            if picked and picked[0].pk not in lines:
+                lines[picked[0].pk] = picked
+        if not lines:
+            return None
+        subtotal = sum((catalog.current_price(v) or D(0)) * q for v, q in lines.values())
+        roll = self.rng.random()
+        percent = D("15") if roll < 0.03 else D("5") if roll < 0.18 else D("0")
+        discount = (subtotal * percent / 100).quantize(D("0.01"), rounding=ROUND_DOWN)  # never above the percent
+        approval = None
+        if percent > settings.POS_CASHIER_MAX_DISCOUNT_PERCENT:
+            approval = grant_approval(
+                request=None,
+                requester=cashier,
+                approver_email=self.managers[store.pk].email,
+                approver_password=PASSWORD,
+                action=Approval.Action.DISCOUNT,
+                location=store,
+                reason="Cliente fiel",
+                limit=percent,
+            )
+        salespeople = [self.managers[store.pk], *self.cashiers[store.pk]]
+        sale, _ = pos.create_sale(
+            user=cashier,
+            client_request_id=self._uuid(),
+            items=[pos.ItemInput(v, q) for v, q in lines.values()],
+            payments=self._payments(subtotal - discount),
+            discount=discount,
+            salesperson=self.rng.choice(salespeople) if self.rng.random() < 0.8 else None,
+            approval_id=approval.pk if approval else None,
+        )
+        return sale
+
+    def sell_day(self, day: datetime, plan: dict[Location, int]) -> list[Sale]:
+        """
+        Both stores' day, interleaved by the clock: the average cost is company-wide, so the
+        ledger must take the sales in the order they happened, whatever the store.
+        """
         selling = [
             (i, p)
             for i, p in self.products
             if not (i.out_of_season and day > self.first_day + timedelta(days=self.days // 3))
         ]
-        salespeople = [self.managers[store.pk], *self.cashiers[store.pk]]
-        sold = []
-        for n in range(sales_count):
-            # Each sale in its own slot of the 10:00-20:00 day: numbers and times go up together.
-            slot = 600 // max(sales_count, 1)
-            minute = n * slot + self.rng.randint(0, slot - 1)
-            self.clock.at(day, 10 + minute // 60, minute % 60)
-            lines: dict[int, tuple[ProductVariant, int]] = {}
-            for _ in range(self.rng.choices([1, 1, 2, 3])[0]):
-                picked = self._pick(store, selling)
-                if picked and picked[0].pk not in lines:
-                    lines[picked[0].pk] = picked
-            if not lines:
-                continue
-            items = [pos.ItemInput(v, q) for v, q in lines.values()]
-            subtotal = sum((catalog.current_price(v) or D(0)) * q for v, q in lines.values())
-            roll = self.rng.random()
-            percent = D("15") if roll < 0.03 else D("5") if roll < 0.18 else D("0")
-            discount = (subtotal * percent / 100).quantize(D("0.01"), rounding=ROUND_DOWN)  # never above the percent
-            approval = None
-            if percent > settings.POS_CASHIER_MAX_DISCOUNT_PERCENT:
-                approval = grant_approval(
-                    request=None,
-                    requester=cashier,
-                    approver_email=self.managers[store.pk].email,
-                    approver_password=PASSWORD,
-                    action=Approval.Action.DISCOUNT,
-                    location=store,
-                    reason="Cliente fiel",
-                    limit=percent,
-                )
-            sale, _ = pos.create_sale(
-                user=cashier,
-                client_request_id=self._uuid(),
-                items=items,
-                payments=self._payments(subtotal - discount),
-                discount=discount,
-                salesperson=self.rng.choice(salespeople) if self.rng.random() < 0.8 else None,
-                approval_id=approval.pk if approval else None,
+        tills: dict[int, tuple[User, CashSession]] = {}
+        for store in plan:
+            cashier = self.rng.choice(self.cashiers[store.pk])
+            self.clock.forward_to(day, 10)
+            tills[store.pk] = (
+                cashier,
+                pos.open_session(user=cashier, register=self.registers[store.pk], opening_float=D("100.00")),
             )
-            sold.append(sale)
-        if sold and self.rng.random() < 0.15:  # the customer gave up at the counter
-            self.clock.tick(3)
-            pos.cancel_sale(user=cashier, sale=sold.pop(), reason="Cliente desistiu")
-        if self.rng.random() < 0.3:
-            self.clock.at(day, 15)
+        # (minute of the day, store, what): sales in their own slot of 10:00-20:00, a cash pick-up at 15:00.
+        events: list[tuple[int, Location, str]] = []
+        for store, count in plan.items():
+            slot = 600 // max(count, 1)
+            events += [(600 + n * slot + self.rng.randint(0, slot - 1), store, "sale") for n in range(count)]
+            if self.rng.random() < 0.3:
+                events.append((900, store, "withdrawal"))
+        sold: list[Sale] = []
+        for minute, store, what in sorted(events, key=lambda e: e[0]):
+            self.clock.forward_to(day, minute // 60, minute % 60)
+            cashier, session = tills[store.pk]
+            if what == "withdrawal":
+                if pos.expected_cash(session) > D("300"):
+                    pos.move_cash(
+                        user=cashier,
+                        session=session,
+                        kind=CashMovement.Kind.WITHDRAWAL,
+                        amount=D("200.00"),
+                        reason="Cofre",
+                    )
+                continue
+            sale = self._sell(store, cashier, selling)
+            if sale is None:
+                continue
+            if self.rng.random() < 0.015:  # the customer gave up at the counter
+                self.clock.tick(1)
+                pos.cancel_sale(user=cashier, sale=sale, reason="Cliente desistiu")
+            else:
+                sold.append(sale)
+        for cashier, session in tills.values():
+            self.clock.forward_to(day, 21, 10)
+            self.clock.tick(1)
             expected = pos.expected_cash(session)
-            if expected > D("300"):
-                pos.move_cash(
-                    user=cashier, session=session, kind=CashMovement.Kind.WITHDRAWAL, amount=D("200.00"), reason="Cofre"
-                )
-        self.clock.at(day, 21, 10)
-        expected = pos.expected_cash(session)
-        slip = self.rng.choices([D("0"), D("-2.00"), D("0.50"), D("-10.00")], weights=[85, 8, 5, 2])[0]
-        pos.close_session(
-            user=cashier,
-            session=session,
-            counted_cash=max(expected + slip, D(0)),
-            note="" if not slip else "Conferido duas vezes",
-        )
+            slip = self.rng.choices([D("0"), D("-2.00"), D("0.50"), D("-10.00")], weights=[85, 8, 5, 2])[0]
+            pos.close_session(
+                user=cashier,
+                session=session,
+                counted_cash=max(expected + slip, D(0)),
+                note="" if not slip else "Conferido duas vezes",
+            )
         return sold
 
     def returns(self, day: datetime, recent: list[Sale]) -> None:
@@ -536,7 +565,7 @@ class Seed:
                 continue
             store = sale.location
             cashier = self.cashiers[store.pk][0]
-            self.clock.at(day, 11, self.rng.randint(0, 59))
+            self.clock.forward_to(day, 20, 30 + self.rng.randint(0, 20))  # after the day's sales, before closing
             pos.return_items(
                 user=cashier,
                 location=store,
@@ -578,33 +607,37 @@ class Seed:
 
     def run(self) -> None:
         with simulated(self.clock):
+            # Opening stock arrives the week before the history starts.
+            self.clock.now = self.first_day - timedelta(days=7)
             self.people_and_places()
             self.catalog()
             self.buy(self.dep, scale=4)
             for store in self.stores:
-                self.buy(store, scale=1)
+                self.buy(store, scale=2)
             self.set_targets()
             yesterday: list[Sale] = []
             for offset in range(self.days):
                 day = self.first_day + timedelta(days=offset)
                 weekend = day.weekday() >= 5
-                self.returns(day, yesterday)
-                yesterday = []
-                for store in self.stores:
-                    base = 9 if store == self.centro else 6
-                    yesterday += self.sell_day(day, store, base + (4 if weekend else 0) + self.rng.randint(-2, 2))
-                if offset % 7 == 6:
-                    self.clock.at(day, 22)
+                plan = {
+                    store: (9 if store == self.centro else 6) + (4 if weekend else 0) + self.rng.randint(-2, 2)
+                    for store in self.stores
+                }
+                today_sales = self.sell_day(day, plan)
+                self.returns(day, yesterday)  # yesterday's customers come back in the evening
+                yesterday = today_sales
+                if offset % 7 in (2, 6):  # the van goes round twice a week
+                    self.clock.forward_to(day, 22)
                     for store in self.stores:
                         self.restock(store)
                 if offset % 14 == 13 and offset < self.days - 3:
-                    self.clock.at(day, 22, 30)
-                    self.buy(self.dep, scale=1, partial=offset % 28 == 27)
+                    self.clock.forward_to(day, 22, 30)
+                    self.buy(self.dep, scale=2, partial=offset % 28 == 27)
                 if offset == self.days - 10:
-                    self.clock.at(day, 22, 40)
+                    self.clock.forward_to(day, 22, 40)
                     self.count(self.shop)
                 if offset == self.days // 2:  # the winter pieces go on sale
-                    self.clock.at(day, 8)
+                    self.clock.forward_to(day, 22, 50)
                     for item, product in self.products:
                         if item.out_of_season:
                             markdown = D(int(D(item.price) * D("0.7"))) + D("0.90")  # 30% off, ending in ,90

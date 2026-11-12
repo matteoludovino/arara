@@ -8,7 +8,8 @@ from common.integrity import all_problems
 from counts.models import InventoryCount
 from demo.seed import PASSWORD, Seed
 from pos.models import CashSession, Sale
-from purchasing.models import PurchaseOrder
+from purchasing.models import PurchaseOrder, PurchaseOrderLine
+from stock.models import StockEntry
 from transfers.models import Transfer
 
 pytestmark = pytest.mark.django_db
@@ -37,3 +38,17 @@ def test_sale_numbers_follow_the_clock() -> None:
     for store in {s.location_id for s in Sale.objects.all()}:
         by_number = list(Sale.objects.filter(location_id=store).order_by("number").values_list("created_at", flat=True))
         assert by_number == sorted(by_number)
+
+
+def test_the_ledger_is_in_the_order_things_happened() -> None:
+    # Every entry is dated no earlier than the one before it: nothing was sold before it arrived.
+    Seed(days=5).run()
+    dates = list(StockEntry.objects.order_by("pk").values_list("created_at", flat=True))
+    assert dates == sorted(dates)
+    first_sale = Sale.objects.order_by("created_at").values_list("created_at", flat=True).first()
+    winter = PurchaseOrderLine.objects.filter(
+        variant__product__collection__name="Inverno 2026", order__location__kind="store"
+    )
+    assert winter.exists(), "the stores open with the winter collection"
+    assert first_sale is not None
+    assert all(d <= first_sale for d in winter.values_list("order__receipts__received_at", flat=True))

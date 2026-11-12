@@ -89,6 +89,9 @@ export function Layout() {
                 </option>
               ))}
             </select>
+            <button type="button" onClick={() => signOut.mutate()} className="rounded px-2 py-1 text-sm text-stone-600 hover:bg-stone-100">
+              Sair
+            </button>
           </div>
         </header>
         <main className="flex-1 p-4 md:p-8">
