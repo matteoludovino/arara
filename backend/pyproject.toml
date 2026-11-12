@@ -1,0 +1,59 @@
+[project]
+name = "arara-api"
+version = "0.1.0"
+description = "Arara API: inventory, purchasing and point of sale for clothing stores"
+authors = [
+    { name = "Matteo Ludovino", email = "matteoludovino@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = [
+    "django~=6.1",
+    "django-environ>=0.14.0",
+    "django-filter>=26.2",
+    "djangorestframework~=3.18",
+    "drf-spectacular>=0.30.0",
+    "gunicorn>=27.0.0",
+    "psycopg[binary]~=3.3",
+    "whitenoise>=6.12.0",
+]
+
+
+[dependency-groups]
+dev = [
+    "django-stubs>=6.1.2",
+    "djangorestframework-stubs>=3.18.2",
+    "factory-boy>=3.3.3",
+    "mypy>=2.4.1",
+    "pytest>=9.2.0",
+    "pytest-django>=4.14.0",
+    "ruff>=0.17.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+extend-exclude = ["*/migrations/*"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "DJ", "SIM", "RUF", "DTZ", "PT"]
+
+[tool.mypy]
+python_version = "3.14"
+strict = true
+plugins = ["mypy_django_plugin.main", "mypy_drf_plugin.main"]
+exclude = ["migrations/"]
+
+[[tool.mypy.overrides]]
+module = ["environ.*", "factory.*", "django_filters.*"]
+ignore_missing_imports = true
+
+[tool.django-stubs]
+django_settings_module = "config.settings"
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "config.settings"
+python_files = ["test_*.py", "tests.py"]
+addopts = "--strict-markers -ra"
