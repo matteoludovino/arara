@@ -5,8 +5,14 @@ Arara settings. Everything that varies between environments comes from the envir
 
 from pathlib import Path
 
+import django_stubs_ext
 import environ
 from django.core.exceptions import ImproperlyConfigured
+
+# Lets annotations like `ModelAdmin[Location]` work at runtime, not only for the type checker.
+# DRF's classes are patched in CommonConfig.ready(): importing DRF here would make it read its
+# settings before REST_FRAMEWORK below exists, and it would keep that empty read.
+django_stubs_ext.monkeypatch()
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -43,7 +49,12 @@ INSTALLED_APPS = [
     "django_filters",
     "drf_spectacular",
     "common",
+    "locations",
+    "accounts",
+    "audit",
 ]
+
+AUTH_USER_MODEL = "accounts.User"
 
 MIDDLEWARE = [
     "django.middleware.security.SecurityMiddleware",
@@ -130,6 +141,9 @@ REST_FRAMEWORK = {
     "DEFAULT_SCHEMA_CLASS": "drf_spectacular.openapi.AutoSchema",
     # Money travels as strings ("129.90"): never as a float the client could round.
     "COERCE_DECIMAL_TO_STRING": True,
+    "EXCEPTION_HANDLER": "common.errors.api_exception_handler",
+    # Endpoints that check a password (sign-in, manager approvals) are rate limited per client.
+    "DEFAULT_THROTTLE_RATES": {"credentials": env.str("CREDENTIALS_RATE", default="10/min")},
 }
 
 SPECTACULAR_SETTINGS = {
