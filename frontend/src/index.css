@@ -1,0 +1,13 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  /* Scarlet macaw red */
+  --color-brand-50: #fdf2ef;
+  --color-brand-100: #fbe0d8;
+  --color-brand-500: #d9482b;
+  --color-brand-600: #bf3a20;
+  --color-brand-700: #9c2f1a;
+}
+
+body { font-variant-numeric: tabular-nums; }
