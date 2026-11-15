@@ -5,6 +5,7 @@ from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from rest_framework import serializers
 
+from demo.shared import is_shared_account
 from locations.models import Location
 
 from .capabilities import capabilities_of
@@ -73,9 +74,25 @@ class UserSerializer(serializers.ModelSerializer[User]):
             except DjangoValidationError as error:
                 # Under the password field, so the form shows it next to the input.
                 raise serializers.ValidationError({"password": list(error.messages)}) from error
+        if self.instance is not None and is_shared_account(self.instance.email) and self._changes_access(attrs):
+            raise serializers.ValidationError("As contas da demonstração são compartilhadas: só o nome pode mudar.")
         if self.instance is not None and self._removes_last_owner(attrs):
             raise serializers.ValidationError("A empresa precisa de pelo menos um proprietário ativo.")
         return attrs
+
+    def _changes_access(self, attrs: dict[str, Any]) -> bool:
+        user = self.instance
+        assert user is not None
+        return (
+            bool(attrs.get("password"))
+            or attrs.get("email", user.email) != user.email
+            or attrs.get("role", user.role) != user.role
+            or attrs.get("is_active", user.is_active) != user.is_active
+            or (
+                "locations" in attrs
+                and {loc.pk for loc in attrs["locations"]} != set(user.locations.values_list("pk", flat=True))
+            )
+        )
 
     def _removes_last_owner(self, attrs: dict[str, Any]) -> bool:
         user = self.instance

@@ -1,6 +1,9 @@
+from typing import Any
+
 from rest_framework import serializers
 
 from common.serializers import clean_cnpj, cnpj_field
+from demo.shared import is_shared_location
 
 from .models import Location
 
@@ -16,6 +19,17 @@ class LocationSerializer(serializers.ModelSerializer[Location]):
 
     def validate_cnpj(self, value: str) -> str:
         return clean_cnpj(value)
+
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        location = self.instance
+        closes = location is not None and (
+            attrs.get("is_active") is False or attrs.get("code", location.code) != location.code
+        )
+        if closes and location is not None and is_shared_location(location.code):
+            raise serializers.ValidationError(
+                "Os locais da demonstração são compartilhados: não podem ser desativados."
+            )
+        return attrs
 
     def validate_code(self, value: str) -> str:
         code = value.strip().upper()

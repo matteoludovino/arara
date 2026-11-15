@@ -360,7 +360,7 @@ function SizeColor({ filters }: { filters: Filters }) {
                         className="flex h-10 w-14 items-center justify-center rounded-md tabular-nums"
                         style={{
                           background: u > 0 ? `color-mix(in oklab, var(--color-brand-600) ${12 + (u / max) * 70}%, white)` : '#f5f5f4',
-                          color: u / max > 0.55 ? 'white' : '#292524',
+                          color: u / max > 0.8 ? 'white' : '#292524', // dark text until the fill is dark enough
                         }}
                         title={`${row.color} ${report.data.sizes[i]}: ${u} peça(s)`}
                       >

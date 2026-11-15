@@ -34,6 +34,9 @@ if PRODUCTION and DEBUG:
     raise ImproperlyConfigured("DEBUG must be off in production")
 
 ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=["localhost", "127.0.0.1"])
+# Render tells the service its own public host name.
+if render_host := env.str("RENDER_EXTERNAL_HOSTNAME", default=""):
+    ALLOWED_HOSTS.append(render_host)
 
 # Browser origin of the web app. The SPA reaches the API through a same-origin `/api` rewrite,
 # so the session cookie stays first-party; this origin is trusted for CSRF.
@@ -107,6 +110,13 @@ DATABASES = {
 DATABASES["default"]["CONN_MAX_AGE"] = env.int("DB_CONN_MAX_AGE", default=60)
 DATABASES["default"]["CONN_HEALTH_CHECKS"] = True
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
+
+if DEMO_MODE:
+    # Same algorithm, fewer iterations: see common/hashers.py for why only the demo does this.
+    PASSWORD_HASHERS = [
+        "common.hashers.DemoPBKDF2PasswordHasher",
+        "django.contrib.auth.hashers.PBKDF2PasswordHasher",
+    ]
 
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.UserAttributeSimilarityValidator"},

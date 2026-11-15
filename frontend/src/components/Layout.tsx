@@ -105,6 +105,7 @@ export function Layout() {
 /** The landing page: the first screen this person may use. */
 export function Home() {
   const { can } = useSession();
-  const first = navFor(can)[0];
+  // Owners and managers start at the numbers; everyone else at their first tool (the till, stock).
+  const first = can('reports.sales') ? { to: '/relatorios' } : navFor(can)[0];
   return first ? <Navigate to={first.to} /> : <p className="text-sm text-stone-500">Nenhuma área disponível para o seu perfil.</p>;
 }
