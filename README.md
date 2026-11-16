@@ -4,7 +4,7 @@ Inventory, purchasing and point of sale for small clothing and shoe stores: prod
 
 The interface is in Brazilian Portuguese (the product is for Brazilian stores); code and docs are in English.
 
-**Live demo:** _coming with the deploy_. Sign in with one click as the owner, a manager, a cashier or the stockist. The data is fictional and resets every night.
+**Live demo: [arara-shelf.vercel.app](https://arara-shelf.vercel.app)**. Sign in with one click as the owner, a manager, a cashier or the stockist. The data is fictional and resets every night. The API runs on a free plan that sleeps when idle, so the first request can take about a minute.
 
 ![Point of sale: a sale split between credit card installments and cash](docs/screenshots/till.png)
 

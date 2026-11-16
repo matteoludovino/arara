@@ -19,7 +19,8 @@ permissions:
 jobs:
   reset:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    # The seed makes thousands of round trips to Neon: about 26 minutes from a runner.
+    timeout-minutes: 60
     defaults:
       run:
         working-directory: backend
