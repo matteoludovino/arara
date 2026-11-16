@@ -28,8 +28,12 @@ DEBUG = env.bool("DEBUG", default=not PRODUCTION)
 DEMO_MODE = env.bool("DEMO_MODE", default=False)
 
 SECRET_KEY = env.str("SECRET_KEY", default=DEV_SECRET_KEY)
-if PRODUCTION and (SECRET_KEY == DEV_SECRET_KEY or len(SECRET_KEY) < 50):
-    raise ImproperlyConfigured("SECRET_KEY: set a random value of 50+ characters in production")
+# 40+ characters: Render's `generateValue` is 32 random bytes in base64 (44 characters), which is
+# strong enough; Django's own deploy check asks for 50 as a rough heuristic.
+if PRODUCTION and SECRET_KEY == DEV_SECRET_KEY:
+    raise ImproperlyConfigured("SECRET_KEY is not set")
+if PRODUCTION and len(SECRET_KEY) < 40:
+    raise ImproperlyConfigured(f"SECRET_KEY has {len(SECRET_KEY)} characters; use a random value of 40+")
 if PRODUCTION and DEBUG:
     raise ImproperlyConfigured("DEBUG must be off in production")
 
