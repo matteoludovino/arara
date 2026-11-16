@@ -157,7 +157,8 @@ if PRODUCTION:
     SECURE_REFERRER_POLICY = "same-origin"
     # HTTPS is enforced at the edge (Render and Vercel redirect, and Vercel sends HSTS for its
     # domain). Redirecting inside Django would also redirect the platform's plain-HTTP health check.
-    SILENCED_SYSTEM_CHECKS = ["security.W004", "security.W008"]
+    # W009 wants a 50-character key; Render's generated one is 44 characters of base64 (256 bits).
+    SILENCED_SYSTEM_CHECKS = ["security.W004", "security.W008", "security.W009"]
 
 REST_FRAMEWORK = {
     "DEFAULT_AUTHENTICATION_CLASSES": ["rest_framework.authentication.SessionAuthentication"],
